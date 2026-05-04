@@ -30,8 +30,8 @@ export type AssessResult = {
   estimated_hours: number;
   next_steps: string[];
   calendly_url: string;
-  checklist_pdf_url: string;
-  demo_url: string;
+  website_url: string;
+  waitlist_url: string;
 };
 
 export async function fetchQuestions(): Promise<Question[]> {

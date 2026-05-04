@@ -459,28 +459,29 @@ export default function Home() {
                   Schedule a free consultation (Calendly)
                 </a>
                 <a
-                  href={result.checklist_pdf_url}
+                  href={result.website_url}
                   className="font-medium underline-offset-4 hover:underline"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Download compliance checklist (PDF)
+                  Beacon Watchtower (website)
                 </a>
                 <a
-                  href={result.demo_url}
+                  href={result.waitlist_url}
                   className="font-medium underline-offset-4 hover:underline"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Request Beacon demo
+                  Get early access — join the waitlist
                 </a>
               </div>
               <p className="mt-4 text-xs text-sky-900/70 dark:text-sky-300/70">
-                PDF and demo links come from the API — update those URLs in
+                Calendly, website, and waitlist URLs are sent from the API. To
+                change them, edit
                 <code className="mx-1 rounded bg-sky-100/80 px-1 py-0.5 text-[0.7rem] dark:bg-sky-900/50">
                   backend/app/main.py
                 </code>
-                if needed.
+                .
               </p>
             </div>
           </section>

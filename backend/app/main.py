@@ -46,8 +46,8 @@ class AssessResponse(BaseModel):
     estimated_hours: int
     next_steps: list[str]
     calendly_url: str
-    checklist_pdf_url: str
-    demo_url: str
+    website_url: str
+    waitlist_url: str
 
 
 def _options(*items: tuple[str, str, float]) -> list[dict[str, Any]]:
@@ -548,8 +548,8 @@ def assess(body: AssessRequest) -> AssessResponse:
         estimated_hours=_estimate_hours(total, len(gaps)),
         next_steps=_next_steps(gaps),
         calendly_url="https://calendly.com/beaconone-org/30min",
-        checklist_pdf_url="https://example.com/eu-ai-act-checklist.pdf",
-        demo_url="https://example.com/beacon-demo",
+        website_url="https://beaconwatchtower.carrd.co",
+        waitlist_url="https://docs.google.com/forms/d/e/1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform",
     )
 
 
