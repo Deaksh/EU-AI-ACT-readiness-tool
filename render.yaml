@@ -1,5 +1,5 @@
-# API runs as Docker so Python is pinned to 3.12 (native Render Python was resolving to 3.14,
-# which lacks pydantic-core wheels and triggers a Rust build that fails on Render).
+# Docker API — Python 3.12 pinned in the image. For Render Web Service (not Blueprint): create a
+# Docker web service, Dockerfile path `Dockerfile`, context `.`, root directory empty (repo root).
 services:
   - type: web
     name: eu-ai-act-api
@@ -7,8 +7,8 @@ services:
     plan: free
     region: oregon
     branch: main
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
       - key: CORS_ALLOW_ORIGINS
