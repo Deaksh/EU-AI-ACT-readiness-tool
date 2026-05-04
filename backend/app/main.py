@@ -17,7 +17,13 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
-import jwt
+try:
+    import jwt
+except ModuleNotFoundError as e:  # pragma: no cover
+    raise ModuleNotFoundError(
+        "Install admin dependencies: cd backend && pip install -r requirements.txt "
+        "(use PyJWT; it provides the 'jwt' module — not the PyPI package named 'jwt')."
+    ) from e
 from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
