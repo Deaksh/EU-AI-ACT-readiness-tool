@@ -1,5 +1,5 @@
-# Docker API — Python 3.12 pinned in the image. For Render Web Service (not Blueprint): create a
-# Docker web service, Dockerfile path `Dockerfile`, context `.`, root directory empty (repo root).
+# API image lives under backend/ so the repo root has no Dockerfile (Vercel would otherwise
+# deploy this image and serve FastAPI — 404 on / for the marketing app).
 services:
   - type: web
     name: eu-ai-act-api
@@ -7,8 +7,8 @@ services:
     plan: free
     region: oregon
     branch: main
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     healthCheckPath: /health
     envVars:
       - key: CORS_ALLOW_ORIGINS
