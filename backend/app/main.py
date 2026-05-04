@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.db import init_db, list_submissions, save_submission
+from app.db import admin_summary_rows, init_db, list_submissions, save_submission
 from app.report_email import (
     brevo_api_is_configured,
     build_report_html,
@@ -47,6 +50,13 @@ class AssessRequest(BaseModel):
     answers: dict[str, str | list[str]] = Field(default_factory=dict)
     email: EmailStr | None = None
     consent: bool = False
+    contact_name: str | None = Field(None, max_length=120)
+    company: str | None = Field(None, max_length=200)
+    client_referrer: str | None = Field(None, max_length=2000)
+    page_url: str | None = Field(None, max_length=2000)
+    utm_source: str | None = Field(None, max_length=200)
+    utm_medium: str | None = Field(None, max_length=200)
+    utm_campaign: str | None = Field(None, max_length=200)
 
     @field_validator("email", mode="before")
     @classmethod
@@ -55,6 +65,25 @@ class AssessRequest(BaseModel):
             return None
         if isinstance(v, str) and not v.strip():
             return None
+        return v
+
+    @field_validator(
+        "contact_name",
+        "company",
+        "client_referrer",
+        "page_url",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        mode="before",
+    )
+    @classmethod
+    def strip_blank_optional(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
         return v
 
 
@@ -543,6 +572,47 @@ def _cors_extra_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
+def _submission_meta(request: Request, body: AssessRequest) -> dict[str, Any]:
+    """Non-answer context for admin review (CRM / attribution). Optional email still stored separately."""
+    meta: dict[str, Any] = {}
+    if body.contact_name:
+        meta["contact_name"] = body.contact_name
+    if body.company:
+        meta["company"] = body.company
+    if body.client_referrer:
+        meta["client_referrer"] = body.client_referrer
+    if body.page_url:
+        meta["page_url"] = body.page_url
+    if body.utm_source:
+        meta["utm_source"] = body.utm_source
+    if body.utm_medium:
+        meta["utm_medium"] = body.utm_medium
+    if body.utm_campaign:
+        meta["utm_campaign"] = body.utm_campaign
+
+    ref = request.headers.get("referer")
+    if ref:
+        meta["http_referer"] = ref[:2000]
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        first = xff.split(",")[0].strip()[:100]
+        if first:
+            meta["client_ip"] = first
+    elif request.client and request.client.host:
+        meta["client_ip"] = str(request.client.host)[:100]
+
+    ua = request.headers.get("user-agent")
+    if ua:
+        meta["user_agent"] = ua[:500]
+
+    return meta
+
+
+def _admin_key_ok(x_admin_key: str | None) -> bool:
+    expected = os.environ.get("ADMIN_API_KEY")
+    return bool(expected and x_admin_key == expected)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
@@ -591,7 +661,7 @@ def get_questions() -> list[QuestionOut]:
 
 
 @app.post("/api/assess", response_model=AssessResponse)
-def assess(body: AssessRequest) -> AssessResponse:
+def assess(request: Request, body: AssessRequest) -> AssessResponse:
     if not body.consent:
         raise HTTPException(
             status_code=400,
@@ -637,6 +707,7 @@ def assess(body: AssessRequest) -> AssessResponse:
         answers=answers_for_db,
         report=report_for_db,
         consent=body.consent,
+        meta=_submission_meta(request, body),
     )
 
     if email_to:
@@ -686,12 +757,99 @@ def admin_submissions(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    expected = os.environ.get("ADMIN_API_KEY")
-    if not expected or x_admin_key != expected:
+    if not _admin_key_ok(x_admin_key):
         raise HTTPException(status_code=404, detail="Not found")
     lim = max(1, min(limit, 200))
     off = max(0, offset)
     return list_submissions(limit=lim, offset=off)
+
+
+@app.get("/api/admin/submissions/export")
+def admin_submissions_export(
+    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
+) -> Response:
+    """CSV for spreadsheets: includes flattened meta + full meta_json."""
+    if not _admin_key_ok(x_admin_key):
+        raise HTTPException(status_code=404, detail="Not found")
+    rows = list_submissions(limit=100_000, offset=0)
+    buf = io.StringIO()
+    fieldnames = [
+        "id",
+        "created_at",
+        "email",
+        "consent",
+        "band",
+        "score_percent",
+        "contact_name",
+        "company",
+        "page_url",
+        "client_referrer",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "client_ip",
+        "http_referer",
+        "user_agent",
+        "meta_json",
+    ]
+    w = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+    w.writeheader()
+    for row in rows:
+        meta = row.get("meta") or {}
+        rep = row.get("report") or {}
+        w.writerow(
+            {
+                "id": row["id"],
+                "created_at": row.get("created_at") or "",
+                "email": row.get("email") or "",
+                "consent": row.get("consent", False),
+                "band": rep.get("band", ""),
+                "score_percent": rep.get("score_percent", ""),
+                "contact_name": meta.get("contact_name", ""),
+                "company": meta.get("company", ""),
+                "page_url": meta.get("page_url", ""),
+                "client_referrer": meta.get("client_referrer", ""),
+                "utm_source": meta.get("utm_source", ""),
+                "utm_medium": meta.get("utm_medium", ""),
+                "utm_campaign": meta.get("utm_campaign", ""),
+                "client_ip": meta.get("client_ip", ""),
+                "http_referer": meta.get("http_referer", ""),
+                "user_agent": meta.get("user_agent", ""),
+                "meta_json": json.dumps(meta, ensure_ascii=False),
+            }
+        )
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="assessment_submissions.csv"'
+        },
+    )
+
+
+@app.get("/api/admin/summary")
+def admin_summary(
+    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
+) -> dict[str, Any]:
+    """Counts by band and email presence for quick analysis."""
+    if not _admin_key_ok(x_admin_key):
+        raise HTTPException(status_code=404, detail="Not found")
+    rows = admin_summary_rows()
+    by_band: dict[str, int] = {}
+    with_email = 0
+    for r in rows:
+        b = str(r.get("band") or "unknown")
+        by_band[b] = by_band.get(b, 0) + 1
+        if r.get("has_email"):
+            with_email += 1
+    n = len(rows)
+    return {
+        "total": n,
+        "with_email": with_email,
+        "without_email": n - with_email,
+        "by_band": by_band,
+        "submissions": rows,
+    }
 
 
 @app.get("/api/deadline")

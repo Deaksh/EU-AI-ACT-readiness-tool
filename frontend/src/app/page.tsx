@@ -62,6 +62,8 @@ export default function Home() {
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<AssessResult | null>(null);
   const [email, setEmail] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [company, setCompany] = useState("");
   const [consent, setConsent] = useState(false);
 
   useEffect(() => {
@@ -133,10 +135,24 @@ export default function Home() {
           setSubmitting(false);
           return;
         }
+        const sp =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search)
+            : null;
         const res = await submitAssessment({
           answers: payload,
           email: email.trim() || null,
           consent,
+          contact_name: contactName.trim() || null,
+          company: company.trim() || null,
+          client_referrer:
+            typeof document !== "undefined" && document.referrer
+              ? document.referrer
+              : null,
+          page_url: typeof window !== "undefined" ? window.location.href : null,
+          utm_source: sp?.get("utm_source") || null,
+          utm_medium: sp?.get("utm_medium") || null,
+          utm_campaign: sp?.get("utm_campaign") || null,
         });
         setResult(res);
         setTimeout(() => {
@@ -150,7 +166,7 @@ export default function Home() {
         setSubmitting(false);
       }
     },
-    [answers, questions, consent, email]
+    [answers, questions, consent, email, contactName, company]
   );
 
   const reset = () => {
@@ -158,6 +174,8 @@ export default function Home() {
     setResult(null);
     setFormError(null);
     setEmail("");
+    setContactName("");
+    setCompany("");
     setConsent(false);
   };
 
@@ -332,7 +350,45 @@ export default function Home() {
           ) : null}
 
           <div className="rounded-2xl border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-neutral-950/50 sm:p-6">
-            <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              Contact (optional)
+            </p>
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              Helps us follow up. Email can stay blank if you only want the on-screen report.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-neutral-600 dark:text-neutral-400" htmlFor="contact-name">
+                  Name
+                </label>
+                <input
+                  id="contact-name"
+                  type="text"
+                  name="contact_name"
+                  autoComplete="name"
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  placeholder="Alex Doe"
+                  className="mt-1 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none ring-sky-500/30 placeholder:text-neutral-400 focus:ring-2 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-600 dark:text-neutral-400" htmlFor="company">
+                  Organization
+                </label>
+                <input
+                  id="company"
+                  type="text"
+                  name="company"
+                  autoComplete="organization"
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  placeholder="Company or team"
+                  className="mt-1 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none ring-sky-500/30 placeholder:text-neutral-400 focus:ring-2 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100"
+                />
+              </div>
+            </div>
+            <label className="mt-4 block text-sm font-medium text-neutral-900 dark:text-neutral-100">
               Email (optional)
             </label>
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
@@ -540,14 +596,6 @@ export default function Home() {
                   Get early access — join the waitlist
                 </a>
               </div>
-              <p className="mt-4 text-xs text-sky-900/70 dark:text-sky-300/70">
-                Calendly, website, and waitlist URLs are sent from the API. To
-                change them, edit
-                <code className="mx-1 rounded bg-sky-100/80 px-1 py-0.5 text-[0.7rem] dark:bg-sky-900/50">
-                  backend/app/main.py
-                </code>
-                .
-              </p>
             </div>
           </section>
         ) : null}

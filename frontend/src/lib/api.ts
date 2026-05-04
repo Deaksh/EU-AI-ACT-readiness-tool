@@ -21,6 +21,13 @@ export type AssessBody = {
   answers: AssessPayload;
   email?: string | null;
   consent: boolean;
+  contact_name?: string | null;
+  company?: string | null;
+  client_referrer?: string | null;
+  page_url?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
 };
 
 export type AssessResult = {
@@ -56,6 +63,13 @@ export async function submitAssessment(body: AssessBody): Promise<AssessResult> 
       answers: body.answers,
       email: body.email?.trim() || null,
       consent: body.consent,
+      contact_name: body.contact_name?.trim() || null,
+      company: body.company?.trim() || null,
+      client_referrer: body.client_referrer?.trim() || null,
+      page_url: body.page_url?.trim() || null,
+      utm_source: body.utm_source?.trim() || null,
+      utm_medium: body.utm_medium?.trim() || null,
+      utm_campaign: body.utm_campaign?.trim() || null,
     }),
   });
   if (!r.ok) {
