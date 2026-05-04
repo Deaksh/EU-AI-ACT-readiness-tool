@@ -146,7 +146,19 @@ export async function adminLogin(email: string, password: string): Promise<void>
     body: JSON.stringify({ email, password }),
   });
   if (!r.ok) {
-    throw new Error("Invalid email or password.");
+    const err = (await r.json().catch(() => ({}))) as { detail?: unknown };
+    const d = err.detail;
+    let msg = "Sign-in failed.";
+    if (typeof d === "string") {
+      msg = d;
+    } else if (Array.isArray(d) && d[0] && typeof d[0] === "object" && d[0] !== null && "msg" in d[0]) {
+      msg = String((d[0] as { msg: string }).msg);
+    } else if (r.status === 503) {
+      msg = "Admin login is not configured on the API server.";
+    } else if (r.status === 401) {
+      msg = "Invalid email or password.";
+    }
+    throw new Error(msg);
   }
   const j = (await r.json()) as { access_token: string };
   setAdminToken(j.access_token);

@@ -820,13 +820,26 @@ def admin_login(body: AdminLoginIn) -> dict[str, str]:
     expected_email = (
         os.environ.get("ADMIN_EMAIL") or "beaconone.org@gmail.com"
     ).strip().lower()
-    expected_pwd = os.environ.get("ADMIN_PASSWORD")
+    raw_pwd = os.environ.get("ADMIN_PASSWORD")
+    expected_pwd = raw_pwd.strip() if raw_pwd else ""
     if not expected_pwd:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Admin login is not configured: set ADMIN_PASSWORD in backend/.env "
+                "(or your host env) and restart the API."
+            ),
+        )
     if body.email.strip().lower() != expected_email:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password.",
+        )
     if not _admin_password_ok(body.password, expected_pwd):
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password.",
+        )
     secret = _admin_jwt_secret()
     if not secret:
         raise HTTPException(
