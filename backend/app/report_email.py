@@ -77,6 +77,8 @@ def send_report_via_resend(*, to_email: str, subject: str, html: str) -> None:
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            # Resend / edge returns 403 error 1010 if User-Agent is missing (urllib omits it).
+            "User-Agent": "eu-ai-act-readiness-api/1.0",
         },
         method="POST",
     )
