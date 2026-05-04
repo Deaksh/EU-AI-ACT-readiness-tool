@@ -49,11 +49,20 @@ def build_report_html(
 </body></html>"""
 
 
+# Resend only allows @vercel.app / random domains as From after you verify YOUR domain in DNS.
+# For quick tests without a domain, use their documented sender (see Resend "Send Email" API docs).
+_DEFAULT_RESEND_FROM = "EU AI Act Readiness <onboarding@resend.dev>"
+
+
 def send_report_via_resend(*, to_email: str, subject: str, html: str) -> None:
     api_key = os.environ.get("RESEND_API_KEY")
-    from_addr = os.environ.get("EMAIL_FROM") or os.environ.get("RESEND_FROM")
-    if not api_key or not from_addr:
-        raise RuntimeError("RESEND_API_KEY and EMAIL_FROM (or RESEND_FROM) must be set")
+    from_addr = (
+        os.environ.get("EMAIL_FROM")
+        or os.environ.get("RESEND_FROM")
+        or _DEFAULT_RESEND_FROM
+    )
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY must be set")
 
     payload = {
         "from": from_addr,

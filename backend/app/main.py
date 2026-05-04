@@ -633,9 +633,7 @@ def assess(body: AssessRequest) -> AssessResponse:
     )
 
     if email_to:
-        if os.environ.get("RESEND_API_KEY") and (
-            os.environ.get("EMAIL_FROM") or os.environ.get("RESEND_FROM")
-        ):
+        if os.environ.get("RESEND_API_KEY"):
             try:
                 html = build_report_html(
                     answers_labeled=_answers_labeled_for_email(body.answers),
