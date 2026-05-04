@@ -12,7 +12,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.db import init_db, list_submissions, save_submission
 from app.report_email import (
+    brevo_api_is_configured,
     build_report_html,
+    send_report_via_brevo_api,
     send_report_via_resend,
     send_report_via_smtp,
     smtp_is_configured,
@@ -643,7 +645,16 @@ def assess(body: AssessRequest) -> AssessResponse:
             report=report_for_db,
         )
         subject = "Your EU AI Act readiness report"
-        if smtp_is_configured():
+        if brevo_api_is_configured():
+            try:
+                send_report_via_brevo_api(
+                    to_email=email_to, subject=subject, html=html
+                )
+                email_delivery = "sent"
+            except Exception as exc:
+                logger.exception("Report email (Brevo API) failed: %s", exc)
+                email_delivery = "failed"
+        elif smtp_is_configured():
             try:
                 send_report_via_smtp(
                     to_email=email_to, subject=subject, html=html

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import smtplib
 import urllib.error
 import urllib.request
@@ -10,12 +11,85 @@ from html import escape
 from typing import Any
 
 
+def parse_sender_address(raw: str) -> tuple[str | None, str]:
+    """Parse 'Name <email@domain>' or bare 'email@domain' -> (name|None, email)."""
+    s = raw.strip()
+    m = re.match(r"^(.+?)\s*<([^>]+@[^>]+)>\s*$", s)
+    if m:
+        name_part = m.group(1).strip()
+        return (name_part or None, m.group(2).strip())
+    if re.match(r"^[^\s<]+@[^\s>]+$", s):
+        return (None, s)
+    raise ValueError(f"Invalid sender address format: {raw!r}")
+
+
+def brevo_api_is_configured() -> bool:
+    if not os.environ.get("BREVO_API_KEY"):
+        return False
+    return bool(
+        os.environ.get("BREVO_SENDER")
+        or os.environ.get("SMTP_FROM")
+        or os.environ.get("EMAIL_FROM")
+    )
+
+
+def send_report_via_brevo_api(*, to_email: str, subject: str, html: str) -> None:
+    """
+    Brevo transactional email over HTTPS (port 443).
+    Use this on Render **free** tier: outbound SMTP ports 587/465 are blocked and will time out.
+    Create an API key at https://app.brevo.com/settings/keys/api (not the SMTP key).
+    """
+    api_key = os.environ["BREVO_API_KEY"]
+    raw_from = (
+        os.environ.get("BREVO_SENDER")
+        or os.environ.get("SMTP_FROM")
+        or os.environ.get("EMAIL_FROM")
+    )
+    if not raw_from:
+        raise RuntimeError("Set BREVO_SENDER or SMTP_FROM or EMAIL_FROM for Brevo sender")
+
+    name, email_addr = parse_sender_address(raw_from)
+    sender: dict[str, str] = {"email": email_addr}
+    if name:
+        sender["name"] = name
+
+    payload = {
+        "sender": sender,
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "htmlContent": html,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=data,
+        headers={
+            "accept": "application/json",
+            "api-key": api_key,
+            "Content-Type": "application/json",
+            "User-Agent": "eu-ai-act-readiness-api/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            if resp.status not in (200, 201, 204):
+                body = resp.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"Brevo API error {resp.status}: {body}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Brevo API HTTP {e.code}: {body}") from e
+
+
 def smtp_is_configured() -> bool:
     return bool(os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
 
 
 def send_report_via_smtp(*, to_email: str, subject: str, html: str) -> None:
-    """Send HTML mail via SMTP (e.g. Gmail: smtp.gmail.com:587 + App Password)."""
+    """
+    Send HTML mail via SMTP.
+    Note: Render **free** web services block outbound SMTP (25/465/587) — use Brevo HTTPS API instead.
+    """
     host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     port = int(os.environ.get("SMTP_PORT", "587"))
     user = os.environ["SMTP_USER"]

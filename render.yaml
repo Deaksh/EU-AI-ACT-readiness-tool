@@ -36,3 +36,7 @@ services:
         sync: false
       - key: SMTP_SSL
         sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER
+        sync: false
