@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.db import init_db, list_submissions, save_submission
+from app.report_email import build_report_html, send_report_via_resend
+
+logger = logging.getLogger(__name__)
 
 EU_AI_ACT_DEADLINE = date(2026, 8, 2)
 
@@ -31,6 +38,17 @@ class QuestionOut(BaseModel):
 
 class AssessRequest(BaseModel):
     answers: dict[str, str | list[str]] = Field(default_factory=dict)
+    email: EmailStr | None = None
+    consent: bool = False
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def email_blank_to_none(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class AssessResponse(BaseModel):
@@ -48,6 +66,8 @@ class AssessResponse(BaseModel):
     calendly_url: str
     website_url: str
     waitlist_url: str
+    submission_id: int
+    email_delivery: Literal["none", "sent", "failed", "misconfigured"]
 
 
 def _options(*items: tuple[str, str, float]) -> list[dict[str, Any]]:
@@ -483,12 +503,50 @@ def _validate_required(answers: dict[str, str | list[str]]) -> None:
         raise HTTPException(status_code=400, detail={"missing": missing})
 
 
+def _answers_labeled_for_email(
+    answers: dict[str, str | list[str]],
+) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for q in sorted(QUESTIONS_INTERNAL, key=lambda x: x["order"]):
+        if not _visible(q, answers):
+            continue
+        if q["id"] == "q8" and answers.get("q7") == "no":
+            continue
+        raw = answers.get(q["id"])
+        if q["type"] == "multi":
+            if not isinstance(raw, list) or not raw:
+                label = "—"
+            else:
+                selected = set(raw)
+                labels = [o["label"] for o in q["options"] if o["value"] in selected]
+                label = ", ".join(labels) if labels else "—"
+        else:
+            label = "—"
+            if isinstance(raw, str):
+                for o in q["options"]:
+                    if o["value"] == raw:
+                        label = o["label"]
+                        break
+        rows.append((q["text"], label))
+    return rows
+
+
 def _cors_extra_origins() -> list[str]:
     raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-app = FastAPI(title="EU AI Act Readiness Assessment", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title="EU AI Act Readiness Assessment",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -527,6 +585,12 @@ def get_questions() -> list[QuestionOut]:
 
 @app.post("/api/assess", response_model=AssessResponse)
 def assess(body: AssessRequest) -> AssessResponse:
+    if not body.consent:
+        raise HTTPException(
+            status_code=400,
+            detail="Consent is required to submit. Please confirm storage of your responses.",
+        )
+
     _validate_required(body.answers)
     total = _score_total(body.answers)
     score_percent = int(round((total / 20.0) * 100))
@@ -535,7 +599,10 @@ def assess(body: AssessRequest) -> AssessResponse:
     today = date.today()
     days_remaining = max(0, (EU_AI_ACT_DEADLINE - today).days)
 
-    return AssessResponse(
+    email_delivery: Literal["none", "sent", "failed", "misconfigured"] = "none"
+    email_to = str(body.email) if body.email else None
+
+    base = AssessResponse(
         score_points=round(total, 2),
         score_percent=score_percent,
         band=band_key,
@@ -550,7 +617,59 @@ def assess(body: AssessRequest) -> AssessResponse:
         calendly_url="https://calendly.com/beaconone-org/30min",
         website_url="https://beaconwatchtower.carrd.co",
         waitlist_url="https://docs.google.com/forms/d/e/1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform",
+        submission_id=0,
+        email_delivery="none",
     )
+    report_for_db = base.model_dump()
+    report_for_db.pop("submission_id", None)
+    report_for_db.pop("email_delivery", None)
+
+    answers_for_db: dict[str, Any] = dict(body.answers)
+    sub_id = save_submission(
+        email=email_to,
+        answers=answers_for_db,
+        report=report_for_db,
+        consent=body.consent,
+    )
+
+    if email_to:
+        if os.environ.get("RESEND_API_KEY") and (
+            os.environ.get("EMAIL_FROM") or os.environ.get("RESEND_FROM")
+        ):
+            try:
+                html = build_report_html(
+                    answers_labeled=_answers_labeled_for_email(body.answers),
+                    report=report_for_db,
+                )
+                send_report_via_resend(
+                    to_email=email_to,
+                    subject="Your EU AI Act readiness report",
+                    html=html,
+                )
+                email_delivery = "sent"
+            except Exception as exc:
+                logger.exception("Report email failed: %s", exc)
+                email_delivery = "failed"
+        else:
+            email_delivery = "misconfigured"
+
+    return base.model_copy(
+        update={"submission_id": sub_id, "email_delivery": email_delivery}
+    )
+
+
+@app.get("/api/admin/submissions")
+def admin_submissions(
+    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    expected = os.environ.get("ADMIN_API_KEY")
+    if not expected or x_admin_key != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    lim = max(1, min(limit, 200))
+    off = max(0, offset)
+    return list_submissions(limit=lim, offset=off)
 
 
 @app.get("/api/deadline")

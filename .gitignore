@@ -5,5 +5,6 @@ frontend/.next/
 frontend/out/
 frontend/.env.local
 *.pyc
+*.db
 .DS_Store
 .idea/

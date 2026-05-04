@@ -61,6 +61,8 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<AssessResult | null>(null);
+  const [email, setEmail] = useState("");
+  const [consent, setConsent] = useState(false);
 
   useEffect(() => {
     fetchQuestions()
@@ -124,7 +126,18 @@ export default function Home() {
             delete payload["q8"];
           }
         }
-        const res = await submitAssessment(payload);
+        if (!consent) {
+          setFormError(
+            "Please confirm you agree to store your responses (and receive email if you added an address)."
+          );
+          setSubmitting(false);
+          return;
+        }
+        const res = await submitAssessment({
+          answers: payload,
+          email: email.trim() || null,
+          consent,
+        });
         setResult(res);
         setTimeout(() => {
           document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
@@ -137,13 +150,15 @@ export default function Home() {
         setSubmitting(false);
       }
     },
-    [answers, questions]
+    [answers, questions, consent, email]
   );
 
   const reset = () => {
     setAnswers({});
     setResult(null);
     setFormError(null);
+    setEmail("");
+    setConsent(false);
   };
 
   if (loadError) {
@@ -316,6 +331,37 @@ export default function Home() {
             </p>
           ) : null}
 
+          <div className="rounded-2xl border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-neutral-950/50 sm:p-6">
+            <label className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              Email (optional)
+            </label>
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              We&apos;ll send this personalized report to you. Leave blank to only see results on
+              this page.
+            </p>
+            <input
+              type="email"
+              name="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@company.com"
+              className="mt-3 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none ring-sky-500/30 placeholder:text-neutral-400 focus:ring-2 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100"
+            />
+            <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-neutral-700 dark:text-neutral-300">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                className="mt-1 h-4 w-4 shrink-0 rounded border-neutral-300 text-sky-600 focus:ring-sky-500 dark:border-neutral-600"
+              />
+              <span>
+                I agree that my questionnaire responses may be stored securely for internal review
+                and follow-up. If I entered an email, I agree to receive my report at that address.
+              </span>
+            </label>
+          </div>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <button
               type="submit"
@@ -339,11 +385,30 @@ export default function Home() {
             id="results"
             className="mt-12 space-y-6 scroll-mt-24 border-t border-black/5 pt-10 dark:border-white/10"
           >
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-neutral-100" />
-              <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-                Personalized report
-              </h2>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-neutral-100" />
+                <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
+                  Personalized report
+                </h2>
+              </div>
+              {result.email_delivery === "sent" ? (
+                <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                  A detailed copy was sent to your email.
+                </p>
+              ) : null}
+              {result.email_delivery === "failed" ? (
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  We couldn&apos;t send email — your report is still shown below. Try again later or
+                  contact us.
+                </p>
+              ) : null}
+              {result.email_delivery === "misconfigured" && email.trim() ? (
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  Email delivery isn&apos;t configured on the server yet — your report appears
+                  below.
+                </p>
+              ) : null}
             </div>
 
             <div

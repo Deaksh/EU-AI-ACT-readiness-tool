@@ -17,6 +17,12 @@ export type Question = {
 
 export type AssessPayload = Record<string, string | string[]>;
 
+export type AssessBody = {
+  answers: AssessPayload;
+  email?: string | null;
+  consent: boolean;
+};
+
 export type AssessResult = {
   score_points: number;
   score_percent: number;
@@ -32,6 +38,8 @@ export type AssessResult = {
   calendly_url: string;
   website_url: string;
   waitlist_url: string;
+  submission_id: number;
+  email_delivery: "none" | "sent" | "failed" | "misconfigured";
 };
 
 export async function fetchQuestions(): Promise<Question[]> {
@@ -40,21 +48,26 @@ export async function fetchQuestions(): Promise<Question[]> {
   return r.json();
 }
 
-export async function submitAssessment(
-  answers: AssessPayload
-): Promise<AssessResult> {
+export async function submitAssessment(body: AssessBody): Promise<AssessResult> {
   const r = await fetch(`${API_BASE}/api/assess`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answers }),
+    body: JSON.stringify({
+      answers: body.answers,
+      email: body.email?.trim() || null,
+      consent: body.consent,
+    }),
   });
   if (!r.ok) {
     const err = await r.json().catch(() => ({})) as {
-      detail?: string | { missing?: string[] };
+      detail?: string | { missing?: string[] } | Array<{ msg?: string }>;
     };
     const detail = err.detail;
-    if (typeof detail === "object" && detail?.missing?.length) {
+    if (typeof detail === "object" && detail && "missing" in detail && detail.missing?.length) {
       throw new Error(`Please complete: ${detail.missing.join(", ")}`);
+    }
+    if (Array.isArray(detail) && detail[0]?.msg) {
+      throw new Error(detail.map((d) => d.msg).filter(Boolean).join(" ") || "Invalid input.");
     }
     throw new Error(
       typeof detail === "string"
