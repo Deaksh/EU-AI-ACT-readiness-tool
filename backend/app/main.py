@@ -11,7 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.db import init_db, list_submissions, save_submission
-from app.report_email import build_report_html, send_report_via_resend
+from app.report_email import (
+    build_report_html,
+    send_report_via_resend,
+    send_report_via_smtp,
+    smtp_is_configured,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -633,20 +638,28 @@ def assess(body: AssessRequest) -> AssessResponse:
     )
 
     if email_to:
-        if os.environ.get("RESEND_API_KEY"):
+        html = build_report_html(
+            answers_labeled=_answers_labeled_for_email(body.answers),
+            report=report_for_db,
+        )
+        subject = "Your EU AI Act readiness report"
+        if smtp_is_configured():
             try:
-                html = build_report_html(
-                    answers_labeled=_answers_labeled_for_email(body.answers),
-                    report=report_for_db,
-                )
-                send_report_via_resend(
-                    to_email=email_to,
-                    subject="Your EU AI Act readiness report",
-                    html=html,
+                send_report_via_smtp(
+                    to_email=email_to, subject=subject, html=html
                 )
                 email_delivery = "sent"
             except Exception as exc:
-                logger.exception("Report email failed: %s", exc)
+                logger.exception("Report email (SMTP) failed: %s", exc)
+                email_delivery = "failed"
+        elif os.environ.get("RESEND_API_KEY"):
+            try:
+                send_report_via_resend(
+                    to_email=email_to, subject=subject, html=html
+                )
+                email_delivery = "sent"
+            except Exception as exc:
+                logger.exception("Report email (Resend) failed: %s", exc)
                 email_delivery = "failed"
         else:
             email_delivery = "misconfigured"

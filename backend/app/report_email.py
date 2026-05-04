@@ -2,10 +2,48 @@ from __future__ import annotations
 
 import json
 import os
+import smtplib
 import urllib.error
 import urllib.request
+from email.message import EmailMessage
 from html import escape
 from typing import Any
+
+
+def smtp_is_configured() -> bool:
+    return bool(os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
+
+
+def send_report_via_smtp(*, to_email: str, subject: str, html: str) -> None:
+    """Send HTML mail via SMTP (e.g. Gmail: smtp.gmail.com:587 + App Password)."""
+    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASSWORD"]
+    from_addr = (
+        os.environ.get("SMTP_FROM") or os.environ.get("EMAIL_FROM") or user
+    )
+    use_ssl = os.environ.get("SMTP_SSL", "").lower() in ("1", "true", "yes")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = to_email
+    msg.set_content(
+        "Your EU AI Act readiness report is in HTML. "
+        "Use an HTML-capable mail client to view the full report."
+    )
+    msg.add_alternative(html, subtype="html")
+
+    if use_ssl:
+        with smtplib.SMTP_SSL(host, port, timeout=60) as server:
+            server.login(user, password)
+            server.send_message(msg)
+    else:
+        with smtplib.SMTP(host, port, timeout=60) as server:
+            server.starttls()
+            server.login(user, password)
+            server.send_message(msg)
 
 
 def build_report_html(
