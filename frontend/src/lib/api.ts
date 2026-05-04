@@ -91,3 +91,108 @@ export async function submitAssessment(body: AssessBody): Promise<AssessResult> 
   }
   return r.json();
 }
+
+const ADMIN_TOKEN_KEY = "eu_ai_act_admin_token";
+
+export function getAdminToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+export function setAdminToken(token: string) {
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+export function clearAdminToken() {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+function adminAuthHeaders(): HeadersInit {
+  const t = getAdminToken();
+  const h: Record<string, string> = {};
+  if (t) h.Authorization = `Bearer ${t}`;
+  return h;
+}
+
+export type AdminSummary = {
+  total: number;
+  with_email: number;
+  without_email: number;
+  by_band: Record<string, number>;
+  submissions: Array<{
+    id: number;
+    created_at: string | null;
+    email: string | null;
+    has_email: boolean;
+    score_percent: number | string;
+    band: string;
+  }>;
+};
+
+export type AdminSubmission = {
+  id: number;
+  email: string | null;
+  consent: boolean;
+  created_at: string | null;
+  meta: Record<string, unknown>;
+  answers: Record<string, unknown>;
+  report: Record<string, unknown>;
+};
+
+export async function adminLogin(email: string, password: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!r.ok) {
+    throw new Error("Invalid email or password.");
+  }
+  const j = (await r.json()) as { access_token: string };
+  setAdminToken(j.access_token);
+}
+
+export async function fetchAdminSummary(): Promise<AdminSummary> {
+  const r = await fetch(`${API_BASE}/api/admin/summary`, {
+    headers: { ...adminAuthHeaders() },
+    cache: "no-store",
+  });
+  if (r.status === 404) {
+    clearAdminToken();
+    throw new Error("Not authorized or session expired.");
+  }
+  if (!r.ok) throw new Error("Could not load summary.");
+  return r.json();
+}
+
+export async function fetchAdminSubmissions(
+  limit = 50,
+  offset = 0
+): Promise<AdminSubmission[]> {
+  const q = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const r = await fetch(`${API_BASE}/api/admin/submissions?${q}`, {
+    headers: { ...adminAuthHeaders() },
+    cache: "no-store",
+  });
+  if (r.status === 404) {
+    clearAdminToken();
+    throw new Error("Not authorized or session expired.");
+  }
+  if (!r.ok) throw new Error("Could not load submissions.");
+  return r.json();
+}
+
+export async function adminExportCsvBlob(): Promise<Blob> {
+  const r = await fetch(`${API_BASE}/api/admin/submissions/export`, {
+    headers: { ...adminAuthHeaders() },
+  });
+  if (r.status === 404) {
+    clearAdminToken();
+    throw new Error("Not authorized or session expired.");
+  }
+  if (!r.ok) throw new Error("Export failed.");
+  return r.blob();
+}

@@ -7,6 +7,7 @@ import {
   fetchQuestions,
   submitAssessment,
 } from "@/lib/api";
+import { AdminModal } from "@/components/AdminModal";
 
 type Answers = Record<string, string | string[]>;
 
@@ -65,6 +66,7 @@ export default function Home() {
   const [contactName, setContactName] = useState("");
   const [company, setCompany] = useState("");
   const [consent, setConsent] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
 
   useEffect(() => {
     fetchQuestions()
@@ -207,25 +209,36 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,#dbeafe_0%,transparent_55%),radial-gradient(900px_500px_at_100%_20%,#fef3c7_0%,transparent_45%),var(--background)] dark:bg-[radial-gradient(1200px_600px_at_50%_-10%,#0c2649_0%,transparent_55%),radial-gradient(900px_500px_at_100%_20%,#3a2708_0%,transparent_45%),var(--background)]">
       <header className="border-b border-black/5 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/30">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2 px-4 py-8 sm:px-6">
-          <p className="text-xs font-medium uppercase tracking-widest text-sky-700/80 dark:text-sky-300/80">
-            Free readiness snapshot
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
-            EU AI Act Readiness Assessment
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
-            Twenty questions, instant scoring. This tool offers a high-level
-            self-assessment only and is not legal advice. Consult qualified
-            counsel for your specific systems and use cases.
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-            <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 dark:border-white/10 dark:bg-white/5">
-              {answeredCount} / 20 answered
-            </span>
-            <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 dark:border-white/10 dark:bg-white/5">
-              ~2 minutes
-            </span>
+        <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="text-xs font-medium uppercase tracking-widest text-sky-700/80 dark:text-sky-300/80">
+                Free readiness snapshot
+              </p>
+              <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
+                EU AI Act Readiness Assessment
+              </h1>
+              <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
+                Twenty questions, instant scoring. This tool offers a high-level
+                self-assessment only and is not legal advice. Consult qualified
+                counsel for your specific systems and use cases.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 dark:border-white/10 dark:bg-white/5">
+                  {answeredCount} / 20 answered
+                </span>
+                <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 dark:border-white/10 dark:bg-white/5">
+                  ~2 minutes
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAdminOpen(true)}
+              className="shrink-0 rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm transition hover:bg-white dark:border-white/15 dark:bg-neutral-950/60 dark:text-neutral-100 dark:hover:bg-neutral-900"
+            >
+              Admin
+            </button>
           </div>
         </div>
       </header>
@@ -606,6 +619,8 @@ export default function Home() {
         significant gaps (orange), below 12 high risk (red). Scoring uses
         weighted answers — not a legal determination.
       </footer>
+
+      <AdminModal open={adminOpen} onClose={() => setAdminOpen(false)} />
     </div>
   );
 }

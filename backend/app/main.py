@@ -8,15 +8,17 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import csv
+import hmac
 import io
 import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Header, Request, Response
+import jwt
+from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -111,6 +113,11 @@ class AssessResponse(BaseModel):
     waitlist_url: str
     submission_id: int
     email_delivery: Literal["none", "sent", "failed", "misconfigured"]
+
+
+class AdminLoginIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=512)
 
 
 def _options(*items: tuple[str, str, float]) -> list[dict[str, Any]]:
@@ -620,6 +627,49 @@ def _admin_key_ok(x_admin_key: str | None) -> bool:
     return bool(expected and x_admin_key == expected)
 
 
+def _admin_jwt_secret() -> str | None:
+    return os.environ.get("ADMIN_JWT_SECRET") or os.environ.get("ADMIN_API_KEY")
+
+
+def _parse_bearer(authorization: str | None) -> str | None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    tok = authorization[7:].strip()
+    return tok or None
+
+
+def _admin_jwt_ok(token: str | None) -> bool:
+    if not token:
+        return False
+    secret = _admin_jwt_secret()
+    if not secret:
+        return False
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        return payload.get("scope") == "admin"
+    except jwt.PyJWTError:
+        return False
+
+
+def _admin_password_ok(given: str, expected: str) -> bool:
+    gb = given.encode("utf-8")
+    eb = expected.encode("utf-8")
+    if len(gb) != len(eb):
+        return False
+    return hmac.compare_digest(gb, eb)
+
+
+def require_admin(
+    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
+    authorization: str | None = Header(None),
+) -> None:
+    if _admin_key_ok(x_admin_key):
+        return
+    if _admin_jwt_ok(_parse_bearer(authorization)):
+        return
+    raise HTTPException(status_code=404, detail="Not found")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
@@ -758,14 +808,40 @@ def assess(request: Request, body: AssessRequest) -> AssessResponse:
     )
 
 
+@app.post("/api/admin/login")
+def admin_login(body: AdminLoginIn) -> dict[str, str]:
+    """Email + password from env; returns JWT for Authorization: Bearer (8h)."""
+    expected_email = (
+        os.environ.get("ADMIN_EMAIL") or "beaconone.org@gmail.com"
+    ).strip().lower()
+    expected_pwd = os.environ.get("ADMIN_PASSWORD")
+    if not expected_pwd:
+        raise HTTPException(status_code=404, detail="Not found")
+    if body.email.strip().lower() != expected_email:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _admin_password_ok(body.password, expected_pwd):
+        raise HTTPException(status_code=404, detail="Not found")
+    secret = _admin_jwt_secret()
+    if not secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Set ADMIN_API_KEY or ADMIN_JWT_SECRET for admin tokens",
+        )
+    exp = datetime.now(timezone.utc) + timedelta(hours=8)
+    token = jwt.encode(
+        {"scope": "admin", "exp": exp},
+        secret,
+        algorithm="HS256",
+    )
+    return {"access_token": token, "token_type": "bearer"}
+
+
 @app.get("/api/admin/submissions")
 def admin_submissions(
-    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
+    _auth: None = Depends(require_admin),
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    if not _admin_key_ok(x_admin_key):
-        raise HTTPException(status_code=404, detail="Not found")
     lim = max(1, min(limit, 200))
     off = max(0, offset)
     return list_submissions(limit=lim, offset=off)
@@ -773,11 +849,9 @@ def admin_submissions(
 
 @app.get("/api/admin/submissions/export")
 def admin_submissions_export(
-    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
+    _auth: None = Depends(require_admin),
 ) -> Response:
     """CSV for spreadsheets: includes flattened meta + full meta_json."""
-    if not _admin_key_ok(x_admin_key):
-        raise HTTPException(status_code=404, detail="Not found")
     rows = list_submissions(limit=100_000, offset=0)
     buf = io.StringIO()
     fieldnames = [
@@ -835,12 +909,8 @@ def admin_submissions_export(
 
 
 @app.get("/api/admin/summary")
-def admin_summary(
-    x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
-) -> dict[str, Any]:
+def admin_summary(_auth: None = Depends(require_admin)) -> dict[str, Any]:
     """Counts by band and email presence for quick analysis."""
-    if not _admin_key_ok(x_admin_key):
-        raise HTTPException(status_code=404, detail="Not found")
     rows = admin_summary_rows()
     by_band: dict[str, int] = {}
     with_email = 0
