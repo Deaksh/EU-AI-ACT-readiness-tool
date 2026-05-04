@@ -1,5 +1,7 @@
-# API image lives under backend/ so the repo root has no Dockerfile (Vercel would otherwise
-# deploy this image and serve FastAPI — 404 on / for the marketing app).
+# API image under backend/. Repo root has no Dockerfile (Vercel would deploy FastAPI → 404 on /).
+#
+# Monorepo rule: if Root Directory is "backend", Dockerfile path + docker context are relative to
+# backend/ — use ./Dockerfile and .  (NOT backend/Dockerfile — that becomes backend/backend).
 services:
   - type: web
     name: eu-ai-act-api
@@ -7,8 +9,9 @@ services:
     plan: free
     region: oregon
     branch: main
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
       - key: CORS_ALLOW_ORIGINS
