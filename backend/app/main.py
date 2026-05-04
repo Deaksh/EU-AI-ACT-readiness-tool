@@ -1,0 +1,563 @@
+from __future__ import annotations
+
+import os
+from datetime import date
+from typing import Any, Literal
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+EU_AI_ACT_DEADLINE = date(2026, 8, 2)
+
+QuestionType = Literal["single", "multi"]
+
+
+class OptionOut(BaseModel):
+    value: str
+    label: str
+
+
+class QuestionOut(BaseModel):
+    id: str
+    section: int
+    section_title: str
+    order: int
+    text: str
+    type: QuestionType
+    options: list[OptionOut]
+    show_if: dict[str, Any] | None = None
+
+
+class AssessRequest(BaseModel):
+    answers: dict[str, str | list[str]] = Field(default_factory=dict)
+
+
+class AssessResponse(BaseModel):
+    score_points: float
+    score_percent: int
+    band: Literal["green", "yellow", "orange", "red"]
+    band_label: str
+    band_summary: str
+    critical_gaps: list[str]
+    risk_line: str
+    days_remaining: int
+    deadline: str
+    estimated_hours: int
+    next_steps: list[str]
+    calendly_url: str
+    checklist_pdf_url: str
+    demo_url: str
+
+
+def _options(*items: tuple[str, str, float]) -> list[dict[str, Any]]:
+    return [{"value": v, "label": lab, "points": pts} for v, lab, pts in items]
+
+
+QUESTIONS_INTERNAL: list[dict[str, Any]] = [
+    {
+        "id": "q1",
+        "section": 1,
+        "section_title": "AI Inventory",
+        "order": 1,
+        "text": "Do you have a complete inventory of AI systems?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("partial", "Partial", 0.5),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q2",
+        "section": 1,
+        "section_title": "AI Inventory",
+        "order": 2,
+        "text": "How many AI systems are in production?",
+        "type": "single",
+        "options": _options(
+            ("0_10", "0–10", 1.0),
+            ("10_50", "10–50", 0.5),
+            ("50_plus", "50+", 0.5),
+        ),
+    },
+    {
+        "id": "q3",
+        "section": 1,
+        "section_title": "AI Inventory",
+        "order": 3,
+        "text": "Are AI systems documented with: purpose, data, algorithm?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("some", "Some", 0.5),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q4",
+        "section": 1,
+        "section_title": "AI Inventory",
+        "order": 4,
+        "text": "Do you track which systems serve EU users?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("dont_know", "Don't know", 0.0),
+        ),
+    },
+    {
+        "id": "q5",
+        "section": 1,
+        "section_title": "AI Inventory",
+        "order": 5,
+        "text": "Are systems categorized by risk level?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("in_progress", "In progress", 0.5),
+        ),
+    },
+    {
+        "id": "q6",
+        "section": 2,
+        "section_title": "Classification",
+        "order": 6,
+        "text": "Have you classified systems per EU AI Act categories?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("partial", "Partial", 0.5),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q7",
+        "section": 2,
+        "section_title": "Classification",
+        "order": 7,
+        "text": "Do you have high-risk AI systems?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 1.0),
+            ("dont_know", "Don't know", 0.0),
+        ),
+    },
+    {
+        "id": "q8",
+        "section": 2,
+        "section_title": "Classification",
+        "order": 8,
+        "text": "If applicable, which high-risk categories apply?",
+        "type": "multi",
+        "show_if": {"question_id": "q7", "values": ["yes", "dont_know"]},
+        "options": _options(
+            ("employment", "Employment / HR", 0.0),
+            ("credit", "Credit / insurance", 0.0),
+            ("healthcare", "Healthcare", 0.0),
+            ("law_enforcement", "Law enforcement / justice", 0.0),
+            ("education", "Education", 0.0),
+            ("critical_infra", "Critical infrastructure", 0.0),
+            ("biometric", "Biometric identification", 0.0),
+            ("other", "Other / general-purpose high-risk", 0.0),
+        ),
+    },
+    {
+        "id": "q9",
+        "section": 2,
+        "section_title": "Classification",
+        "order": 9,
+        "text": "Have you documented classification rationale?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q10",
+        "section": 2,
+        "section_title": "Classification",
+        "order": 10,
+        "text": "Are prohibited AI practices identified and stopped?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("dont_know", "Don't know", 0.0),
+        ),
+    },
+    {
+        "id": "q11",
+        "section": 3,
+        "section_title": "Compliance Obligations",
+        "order": 11,
+        "text": "Do high-risk systems have risk management processes?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("partial", "Partial", 0.5),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q12",
+        "section": 3,
+        "section_title": "Compliance Obligations",
+        "order": 12,
+        "text": "Is technical documentation complete and current?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("partial", "Partial", 0.5),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q13",
+        "section": 3,
+        "section_title": "Compliance Obligations",
+        "order": 13,
+        "text": "Are data governance practices documented?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q14",
+        "section": 3,
+        "section_title": "Compliance Obligations",
+        "order": 14,
+        "text": "Is human oversight implemented where required?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("dont_know", "Don't know", 0.0),
+        ),
+    },
+    {
+        "id": "q15",
+        "section": 3,
+        "section_title": "Compliance Obligations",
+        "order": 15,
+        "text": "Have you completed conformity assessments?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("in_progress", "In progress", 0.5),
+        ),
+    },
+    {
+        "id": "q16",
+        "section": 4,
+        "section_title": "Governance",
+        "order": 16,
+        "text": "Is there an AI governance committee or owner?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q17",
+        "section": 4,
+        "section_title": "Governance",
+        "order": 17,
+        "text": "Are compliance responsibilities assigned?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("partial", "Partial", 0.5),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q18",
+        "section": 4,
+        "section_title": "Governance",
+        "order": 18,
+        "text": "Do you have incident reporting processes?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+        ),
+    },
+    {
+        "id": "q19",
+        "section": 4,
+        "section_title": "Governance",
+        "order": 19,
+        "text": "Are you monitoring for system drift or bias?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("dont_know", "Don't know", 0.0),
+        ),
+    },
+    {
+        "id": "q20",
+        "section": 4,
+        "section_title": "Governance",
+        "order": 20,
+        "text": "Are you ready for an EU regulator audit?",
+        "type": "single",
+        "options": _options(
+            ("yes", "Yes", 1.0),
+            ("no", "No", 0.0),
+            ("not_sure", "Not sure", 0.0),
+        ),
+    },
+]
+
+def _visible(q: dict[str, Any], answers: dict[str, str | list[str]]) -> bool:
+    cond = q.get("show_if")
+    if not cond:
+        return True
+    ref = answers.get(cond["question_id"])
+    if isinstance(ref, list):
+        return False
+    return ref in cond["values"]
+
+
+def _points_for_answer(q: dict[str, Any], raw: str | list[str] | None) -> float:
+    if q["type"] == "multi":
+        if not isinstance(raw, list):
+            return 0.0
+        return 1.0 if len(raw) > 0 else 0.0
+
+    if raw is None or isinstance(raw, list):
+        return 0.0
+
+    for opt in q["options"]:
+        if opt["value"] == raw:
+            return float(opt["points"])
+    return 0.0
+
+
+def _score_total(answers: dict[str, str | list[str]]) -> float:
+    total = 0.0
+    for q in QUESTIONS_INTERNAL:
+        if not _visible(q, answers):
+            if q["id"] == "q8":
+                total += 1.0
+            continue
+
+        raw = answers.get(q["id"])
+        if q["id"] == "q8":
+            total += _points_for_answer(q, raw)
+            continue
+
+        total += _points_for_answer(q, raw)
+
+    return total
+
+
+def _band_from_points(total: float) -> tuple[Literal["green", "yellow", "orange", "red"], str, str]:
+    rounded = int(round(total))
+    pct = int(round((total / 20.0) * 100))
+
+    if rounded >= 18:
+        return (
+            "green",
+            "GREEN — Compliant",
+            f"{pct}% ready — strong posture against core EU AI Act readiness checks.",
+        )
+    if rounded >= 15:
+        return (
+            "yellow",
+            "YELLOW — Minor gaps",
+            f"{pct}% ready — address remaining gaps before enforcement milestones.",
+        )
+    if rounded >= 12:
+        return (
+            "orange",
+            "ORANGE — Significant gaps",
+            f"{pct}% ready — prioritize governance, documentation, and conformity workstreams.",
+        )
+    return (
+        "red",
+        "RED — High risk",
+        f"{pct}% ready — urgent remediation recommended ahead of regulatory deadlines.",
+    )
+
+
+def _collect_gaps(answers: dict[str, str | list[str]]) -> list[str]:
+    gaps: list[str] = []
+
+    def s(qid: str) -> str | list[str] | None:
+        return answers.get(qid)
+
+    if s("q1") in (None, "no", "partial"):
+        gaps.append("No complete AI inventory")
+    if s("q6") in (None, "no", "partial"):
+        gaps.append("High-risk / EU categories not fully classified")
+    if s("q7") == "dont_know":
+        gaps.append("High-risk exposure unclear")
+    if s("q12") in (None, "no", "partial"):
+        gaps.append("Missing or incomplete technical documentation")
+    if s("q15") in (None, "no"):
+        gaps.append("No conformity assessments completed")
+    if s("q10") in (None, "no", "dont_know"):
+        gaps.append("Prohibited practices screening not verified")
+    if s("q4") in (None, "no", "dont_know"):
+        gaps.append("EU user scope not reliably tracked")
+    if s("q20") in (None, "no", "not_sure"):
+        gaps.append("Audit readiness not demonstrated")
+
+    q7 = s("q7")
+    if q7 in ("yes", "dont_know") and isinstance(s("q8"), list) and len(s("q8")) == 0:
+        gaps.append("High-risk categories not specified")
+
+    return gaps[:8]
+
+
+def _risk_line(band: str, score_percent: int) -> str:
+    if band == "green":
+        return "Lower acute readiness risk on this snapshot — continue monitoring drift and updates."
+    if band == "yellow":
+        return (
+            f"MEDIUM RISK: Non-compliance exposure remains material — fines can reach up to "
+            f"€35M or 7% of global annual turnover (whichever is higher) for severe breaches."
+        )
+    if band == "orange":
+        return (
+            f"HIGH RISK: Potential €35M / 7% turnover exposure if audited without remediation — "
+            f"address critical gaps before enforcement dates."
+        )
+    return (
+        "CRITICAL RISK: Readiness appears far below expectations — treat remediation as urgent "
+        "and seek legal/compliance advice for your specific systems."
+    )
+
+
+def _estimate_hours(total_points: float, gap_count: int) -> int:
+    base = 120 + (20 - total_points) * 12
+    base += gap_count * 15
+    return int(min(520, max(80, round(base))))
+
+
+def _next_steps(gaps: list[str]) -> list[str]:
+    steps = [
+        "Create or validate an AI system inventory (Week 1)",
+        "Classify systems against EU AI Act categories (Week 2–3)",
+        "Stand up risk management & documentation for high-risk systems (Week 4–6)",
+        "Complete technical documentation packs (Week 5–8)",
+        "Plan conformity assessment / notified body route where required (Week 9–11)",
+    ]
+    if any("inventory" in g.lower() for g in gaps):
+        steps[0] = "Prioritize: finalize AI system inventory with owners & data flows (Week 1)"
+    if any("classified" in g.lower() or "categories" in g.lower() for g in gaps):
+        steps[1] = "Prioritize: classification workshop + rationale log (Week 2–3)"
+    return steps
+
+
+def _validate_required(answers: dict[str, str | list[str]]) -> None:
+    missing: list[str] = []
+    for q in QUESTIONS_INTERNAL:
+        if not _visible(q, answers):
+            continue
+        if q["id"] == "q8":
+            q7 = answers.get("q7")
+            if q7 == "no":
+                continue
+            if q7 == "yes":
+                v = answers.get("q8")
+                if not isinstance(v, list) or len(v) == 0:
+                    missing.append("q8")
+                continue
+            continue
+        val = answers.get(q["id"])
+        if val is None or val == "" or val == []:
+            missing.append(q["id"])
+    if missing:
+        raise HTTPException(status_code=400, detail={"missing": missing})
+
+
+def _cors_extra_origins() -> list[str]:
+    raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+app = FastAPI(title="EU AI Act Readiness Assessment", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_extra_origins(),
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/api/questions", response_model=list[QuestionOut])
+def get_questions() -> list[QuestionOut]:
+    out: list[QuestionOut] = []
+    for q in sorted(QUESTIONS_INTERNAL, key=lambda x: x["order"]):
+        opts = [OptionOut(value=o["value"], label=o["label"]) for o in q["options"]]
+        out.append(
+            QuestionOut(
+                id=q["id"],
+                section=q["section"],
+                section_title=q["section_title"],
+                order=q["order"],
+                text=q["text"],
+                type=q["type"],
+                options=opts,
+                show_if=q.get("show_if"),
+            )
+        )
+    return out
+
+
+@app.post("/api/assess", response_model=AssessResponse)
+def assess(body: AssessRequest) -> AssessResponse:
+    _validate_required(body.answers)
+    total = _score_total(body.answers)
+    score_percent = int(round((total / 20.0) * 100))
+    band_key, band_label, band_summary = _band_from_points(total)
+    gaps = _collect_gaps(body.answers)
+    today = date.today()
+    days_remaining = max(0, (EU_AI_ACT_DEADLINE - today).days)
+
+    return AssessResponse(
+        score_points=round(total, 2),
+        score_percent=score_percent,
+        band=band_key,
+        band_label=band_label,
+        band_summary=band_summary,
+        critical_gaps=gaps,
+        risk_line=_risk_line(band_key, score_percent),
+        days_remaining=days_remaining,
+        deadline=EU_AI_ACT_DEADLINE.isoformat(),
+        estimated_hours=_estimate_hours(total, len(gaps)),
+        next_steps=_next_steps(gaps),
+        calendly_url="https://calendly.com/beaconone-org/30min",
+        checklist_pdf_url="https://example.com/eu-ai-act-checklist.pdf",
+        demo_url="https://example.com/beacon-demo",
+    )
+
+
+@app.get("/api/deadline")
+def deadline_info() -> dict[str, Any]:
+    today = date.today()
+    return {
+        "deadline": EU_AI_ACT_DEADLINE.isoformat(),
+        "days_remaining": max(0, (EU_AI_ACT_DEADLINE - today).days),
+        "as_of": today.isoformat(),
+    }

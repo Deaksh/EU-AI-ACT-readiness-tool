@@ -1,0 +1,17 @@
+# Render Blueprint: FastAPI API (set CORS_ALLOW_ORIGINS to your Vercel URL after deploy)
+services:
+  - type: web
+    name: eu-ai-act-api
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.5"
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
