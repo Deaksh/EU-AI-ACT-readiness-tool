@@ -30,8 +30,14 @@ class Submission(Base):
 
 
 def _normalize_database_url(url: str) -> str:
+    """
+    Normalize connection strings for SQLAlchemy + psycopg2.
+    Works with Neon, Render, and other hosts that use postgres:// or postgresql://.
+    """
     if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql+psycopg2://", 1)
+        return "postgresql+psycopg2://" + url[len("postgres://") :]
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return "postgresql+psycopg2://" + url[len("postgresql://") :]
     return url
 
 

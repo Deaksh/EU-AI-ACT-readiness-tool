@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load backend/.env before app.db creates the SQLAlchemy engine (import-time).
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 import csv
 import io
 import json
