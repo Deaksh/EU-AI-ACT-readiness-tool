@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "IND Readiness Assessment | Beacon",
+  title: "EU AI Act Readiness Assessment",
   description:
-    "Concise IND-focused readiness questionnaire for analytical data, CMC, and regulatory strategy (educational only).",
+    "Free 20-question EU AI Act readiness snapshot — educational only, not legal advice.",
 };
 
 export default function RootLayout({

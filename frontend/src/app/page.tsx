@@ -12,7 +12,8 @@ import { bandStyles, bandShortLabel, type ReportBand } from "@/lib/bandTheme";
 
 type Answers = Record<string, string | string[]>;
 
-const BEACON_SITE = "https://beacon-bio.carrd.co";
+/** Beacon Watchtower — same site as API report links (main.py). */
+const BEACON_PUBLIC_SITE = "https://beaconwatchtower.carrd.co";
 
 function LandingScreen({
   onStart,
@@ -21,8 +22,15 @@ function LandingScreen({
   onStart: () => void;
   onAdmin: () => void;
 }) {
+  const pillars = [
+    "AI inventory — systems, documentation, and EU user scope.",
+    "Classification — risk categories, high-risk exposure, and prohibited practices.",
+    "Compliance obligations — risk management, documentation, conformity.",
+    "Governance — ownership, incidents, monitoring, and audit readiness.",
+  ];
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(1000px_520px_at_50%_-5%,#e0e7ff_0%,transparent_55%),radial-gradient(800px_480px_at_100%_30%,#ccfbf1_0%,transparent_50%),var(--background)] dark:bg-[radial-gradient(1000px_520px_at_50%_-5%,#1e1b4b_0%,transparent_55%),radial-gradient(800px_480px_at_100%_30%,#134e4a_0%,transparent_50%),var(--background)]">
+    <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,#dbeafe_0%,transparent_55%),radial-gradient(900px_500px_at_100%_20%,#fef3c7_0%,transparent_45%),var(--background)] dark:bg-[radial-gradient(1200px_600px_at_50%_-10%,#0c2649_0%,transparent_55%),radial-gradient(900px_500px_at_100%_20%,#3a2708_0%,transparent_45%),var(--background)]">
       <header className="border-b border-black/5 bg-white/80 backdrop-blur-md dark:border-white/10 dark:bg-black/40">
         <div className="mx-auto flex max-w-3xl items-center justify-end px-4 py-4 sm:px-6">
           <button
@@ -37,36 +45,32 @@ function LandingScreen({
 
       <main className="mx-auto flex max-w-3xl flex-col items-center px-4 py-16 sm:px-6 sm:py-24">
         <div className="w-full max-w-lg text-center sm:text-left">
-          <p className="text-sm font-semibold tracking-[0.28em] text-indigo-900/80 dark:text-indigo-200/90">
-            BEACON
+          <p className="text-xs font-medium uppercase tracking-widest text-sky-700/85 dark:text-sky-300/85">
+            Free readiness snapshot
           </p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
-            IND Readiness Assessment
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
+            EU AI Act Readiness Assessment
           </h1>
           <p className="mt-4 text-base leading-relaxed text-neutral-600 dark:text-neutral-300">
-            A concise, IND-focused questionnaire covering analytical data, CMC documentation, and
-            regulatory strategy. Estimated time: about two minutes.
+            A concise questionnaire on inventory, classification, compliance, and governance — built
+            for a quick EU AI Act posture check. Estimated time: about two minutes.
           </p>
           <p className="mt-3">
             <a
-              href={BEACON_SITE}
+              href={BEACON_PUBLIC_SITE}
               target="_blank"
               rel="noreferrer"
-              className="text-sm font-medium text-teal-700 underline-offset-4 hover:underline dark:text-teal-400"
+              className="text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
             >
-              beacon-bio.carrd.co
+              beaconwatchtower.carrd.co
             </a>
           </p>
 
           <ol className="mt-10 space-y-5 text-left">
-            {[
-              "Analytical data — methods, data integrity, and audit readiness.",
-              "CMC documentation — M4Q narratives, version control, and eCTD alignment.",
-              "Regulatory strategy — mapping, resourcing, timelines, and risk mitigation.",
-            ].map((text, i) => (
+            {pillars.map((text, i) => (
               <li key={text} className="flex gap-4">
                 <span
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-sm font-semibold text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-100"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-50 text-sm font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100"
                   aria-hidden
                 >
                   {i + 1}
@@ -82,22 +86,23 @@ function LandingScreen({
             <button
               type="button"
               onClick={onStart}
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-indigo-900 px-8 text-sm font-semibold text-white shadow-md transition hover:bg-indigo-800 dark:bg-indigo-600 dark:hover:bg-indigo-500"
+              className="inline-flex h-12 items-center justify-center rounded-xl bg-neutral-900 px-8 text-sm font-semibold text-white shadow-md transition hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-white"
             >
               Start assessment
             </button>
             <a
-              href={BEACON_SITE}
+              href={BEACON_PUBLIC_SITE}
               target="_blank"
               rel="noreferrer"
-              className="text-sm font-medium text-teal-700 underline-offset-4 hover:underline dark:text-teal-400"
+              className="text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
             >
-              beacon-bio.carrd.co
+              beaconwatchtower.carrd.co
             </a>
           </div>
 
           <p className="mt-12 text-center text-xs leading-relaxed text-neutral-500 dark:text-neutral-400 sm:text-left">
-            For educational planning purposes only — not legal or regulatory advice.
+            For educational planning purposes only — not legal advice. Consult qualified counsel for
+            your systems and use cases.
           </p>
         </div>
       </main>
@@ -293,36 +298,37 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1000px_520px_at_50%_-5%,#e0e7ff_0%,transparent_55%),radial-gradient(800px_480px_at_100%_20%,#ccfbf1_0%,transparent_45%),var(--background)] dark:bg-[radial-gradient(1000px_520px_at_50%_-5%,#1e1b4b_0%,transparent_55%),radial-gradient(800px_480px_at_100%_20%,#134e4a_0%,transparent_45%),var(--background)]">
+    <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,#dbeafe_0%,transparent_55%),radial-gradient(900px_500px_at_100%_20%,#fef3c7_0%,transparent_45%),var(--background)] dark:bg-[radial-gradient(1200px_600px_at_50%_-10%,#0c2649_0%,transparent_55%),radial-gradient(900px_500px_at_100%_20%,#3a2708_0%,transparent_45%),var(--background)]">
       <header className="border-b border-black/5 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/30">
-        <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+        <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-xs font-semibold tracking-[0.2em] text-indigo-900/70 dark:text-indigo-200/80">
-                BEACON
+              <p className="text-xs font-medium uppercase tracking-widest text-sky-700/80 dark:text-sky-300/80">
+                Free readiness snapshot
               </p>
-              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-3xl">
-                IND Readiness Assessment
+              <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
+                EU AI Act Readiness Assessment
               </h1>
               <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
-                High-level self-assessment across analytical, CMC, and regulatory themes. Results
-                are indicative only — confirm with your quality and regulatory leads.
+                Twenty questions, instant scoring. This tool offers a high-level self-assessment only
+                and is not legal advice. Consult qualified counsel for your specific systems and use
+                cases.
               </p>
-              <div className="flex flex-wrap items-center gap-2 pt-1">
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                 {!result ? (
                   <button
                     type="button"
                     onClick={() => setAssessmentStarted(false)}
-                    className="text-xs font-medium text-teal-700 underline-offset-4 hover:underline dark:text-teal-400"
+                    className="font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
                   >
                     ← Back to overview
                   </button>
                 ) : null}
-                <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 text-xs text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
+                <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 dark:border-white/10 dark:bg-white/5">
                   {answeredCount} / 20 answered
                 </span>
-                <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 text-xs text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
-                  ~2 min
+                <span className="rounded-full border border-black/5 bg-white/60 px-2.5 py-1 dark:border-white/10 dark:bg-white/5">
+                  ~2 minutes
                 </span>
               </div>
             </div>
@@ -580,7 +586,7 @@ export default function Home() {
               <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                    Your IND readiness snapshot
+                    Your EU AI Act readiness
                   </p>
                   <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-4xl font-semibold tabular-nums tracking-tight text-neutral-900 dark:text-neutral-50">
                     <span>{result.score_percent}%</span>
@@ -730,10 +736,11 @@ export default function Home() {
       <footer className="border-t border-black/5 py-10 text-center text-xs leading-relaxed text-neutral-500 dark:border-white/10 dark:text-neutral-500">
         <p>
           Readiness bands: 18–20 strong (green), 15–17 minor gaps (yellow), 12–14 significant gaps
-          (orange), below 12 high risk (red). Weighted scoring — not a regulatory determination.
+          (orange), below 12 high risk (red). Scoring uses weighted answers — not a legal
+          determination.
         </p>
         <p className="mt-3">
-          For educational planning purposes only — not legal or regulatory advice.
+          For educational planning only — not legal advice.
         </p>
       </footer>
 
