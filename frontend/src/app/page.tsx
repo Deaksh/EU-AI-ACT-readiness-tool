@@ -129,7 +129,7 @@ function sectionBadge(n: number): string {
 }
 
 export default function Home() {
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questions, setQuestions] = useState<Question[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Answers>({});
   const [submitting, setSubmitting] = useState(false);
@@ -143,12 +143,14 @@ export default function Home() {
   const [assessmentStarted, setAssessmentStarted] = useState(false);
 
   useEffect(() => {
+    if (!assessmentStarted) return;
     fetchQuestions()
       .then(setQuestions)
       .catch(() => setLoadError("Unable to load questionnaire. Is the API running?"));
-  }, []);
+  }, [assessmentStarted]);
 
   const grouped = useMemo(() => {
+    if (!questions) return new Map<number, Question[]>();
     const map = new Map<number, Question[]>();
     for (const q of questions) {
       const list = map.get(q.section) ?? [];
@@ -159,6 +161,7 @@ export default function Home() {
   }, [questions]);
 
   const answeredCount = useMemo(() => {
+    if (!questions) return 0;
     let n = 0;
     for (const q of questions) {
       if (!visible(q, answers)) continue;
@@ -198,6 +201,11 @@ export default function Home() {
       setFormError(null);
       setSubmitting(true);
       try {
+        if (!questions) {
+          setFormError("Questionnaire is still loading. Please try again in a moment.");
+          setSubmitting(false);
+          return;
+        }
         const payload: Answers = { ...answers };
         for (const q of questions) {
           if (!visible(q, payload) && q.id === "q8") {
@@ -287,20 +295,20 @@ export default function Home() {
     );
   }
 
-  if (!questions.length) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700 dark:border-neutral-600 dark:border-t-neutral-200" />
-      </div>
-    );
-  }
-
   if (!assessmentStarted) {
     return (
       <>
         <LandingScreen onStart={startAssessment} onAdmin={() => setAdminOpen(true)} />
         <AdminModal open={adminOpen} onClose={() => setAdminOpen(false)} />
       </>
+    );
+  }
+
+  if (!questions) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700 dark:border-neutral-600 dark:border-t-neutral-200" />
+      </div>
     );
   }
 
