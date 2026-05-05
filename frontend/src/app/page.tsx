@@ -245,6 +245,13 @@ export default function Home() {
     [answers, questions, consent, email, contactName, company]
   );
 
+  const scrollToEmail = () => {
+    document.getElementById("contact")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => {
+      (document.getElementById("email") as HTMLInputElement | null)?.focus();
+    }, 250);
+  };
+
   const reset = () => {
     setAnswers({});
     setResult(null);
@@ -462,7 +469,10 @@ export default function Home() {
             </p>
           ) : null}
 
-          <div className="rounded-2xl border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-neutral-950/50 sm:p-6">
+          <div
+            id="contact"
+            className="rounded-2xl border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-neutral-950/50 sm:p-6"
+          >
             <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               Contact (optional)
             </p>
@@ -509,6 +519,7 @@ export default function Home() {
               this page.
             </p>
             <input
+              id="email"
               type="email"
               name="email"
               autoComplete="email"
@@ -560,6 +571,15 @@ export default function Home() {
                 <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
                   Personalized report
                 </h2>
+                {!email.trim() ? (
+                  <button
+                    type="button"
+                    onClick={scrollToEmail}
+                    className="ml-2 text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
+                  >
+                    Email this report
+                  </button>
+                ) : null}
               </div>
               {result.email_delivery === "sent" ? (
                 <p className="text-sm text-emerald-700 dark:text-emerald-400">
