@@ -7,9 +7,11 @@ import {
   clearAdminToken,
   fetchAdminSubmissions,
   fetchAdminSummary,
+  fetchQuestions,
   getAdminToken,
   type AdminSubmission,
   type AdminSummary,
+  type Question,
 } from "@/lib/api";
 
 const DEFAULT_ADMIN_EMAIL =
@@ -29,6 +31,193 @@ function fmtDate(iso: string | null | undefined): string {
   }
 }
 
+function qVisible(q: Question, answers: Record<string, unknown>): boolean {
+  if (!q.show_if) return true;
+  const v = answers[q.show_if.question_id];
+  if (typeof v !== "string") return false;
+  return q.show_if.values.includes(v);
+}
+
+function formatAnswer(q: Question, raw: unknown): string {
+  if (q.type === "multi") {
+    if (!Array.isArray(raw) || raw.length === 0) return "—";
+    const sel = new Set(raw.map((x) => String(x)));
+    const labels = q.options.filter((o) => sel.has(o.value)).map((o) => o.label);
+    return labels.join(", ") || "—";
+  }
+  if (typeof raw !== "string") return "—";
+  return q.options.find((o) => o.value === raw)?.label ?? raw;
+}
+
+function metaLabel(key: string): string {
+  const map: Record<string, string> = {
+    contact_name: "Name",
+    company: "Organization",
+    page_url: "Page URL",
+    client_referrer: "Referrer",
+    utm_source: "UTM source",
+    utm_medium: "UTM medium",
+    utm_campaign: "UTM campaign",
+    http_referer: "HTTP referer",
+    client_ip: "Client IP",
+    user_agent: "User agent",
+  };
+  return map[key] ?? key.replace(/_/g, " ");
+}
+
+function formatMetaValue(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    return String(v);
+  }
+  return JSON.stringify(v);
+}
+
+function SubmissionDetails({
+  s,
+  questions,
+}: {
+  s: AdminSubmission;
+  questions: Question[];
+}) {
+  const answers = (s.answers || {}) as Record<string, unknown>;
+  const rep = (s.report || {}) as Record<string, unknown>;
+  const meta = (s.meta || {}) as Record<string, unknown>;
+
+  const sortedQs = [...questions].sort((a, b) => a.order - b.order);
+  const qaRows: { text: string; value: string }[] = [];
+  for (const q of sortedQs) {
+    if (!qVisible(q, answers)) continue;
+    if (q.id === "q8" && answers["q7"] === "no") continue;
+    qaRows.push({
+      text: q.text,
+      value: formatAnswer(q, answers[q.id]),
+    });
+  }
+
+  const gaps = Array.isArray(rep.critical_gaps)
+    ? rep.critical_gaps.filter((x): x is string => typeof x === "string")
+    : [];
+  const steps = Array.isArray(rep.next_steps)
+    ? rep.next_steps.filter((x): x is string => typeof x === "string")
+    : [];
+
+  const metaEntries = Object.entries(meta)
+    .filter(([, v]) => v != null && v !== "")
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <div className="max-h-[min(70vh,560px)] space-y-4 overflow-y-auto pr-1 text-sm">
+      <section className="rounded-lg border border-black/5 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/80">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          Report snapshot
+        </h4>
+        <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div>
+            <dt className="text-xs text-neutral-500">Readiness</dt>
+            <dd className="font-medium text-neutral-900 dark:text-neutral-100">
+              {String(rep.score_percent ?? "—")}% — {String(rep.band_label ?? rep.band ?? "—")}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-neutral-500">Model score</dt>
+            <dd className="font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
+              {String(rep.score_points ?? "—")} / 20
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs text-neutral-500">Summary</dt>
+            <dd className="text-neutral-700 dark:text-neutral-300">
+              {String(rep.band_summary ?? "—")}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs text-neutral-500">Risk</dt>
+            <dd className="text-neutral-700 dark:text-neutral-300">
+              {String(rep.risk_line ?? "—")}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-neutral-500">Deadline / days left</dt>
+            <dd className="text-neutral-800 dark:text-neutral-200">
+              {String(rep.deadline ?? "—")} · {String(rep.days_remaining ?? "—")} days
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-neutral-500">Est. remediation (hrs)</dt>
+            <dd className="tabular-nums text-neutral-800 dark:text-neutral-200">
+              {String(rep.estimated_hours ?? "—")}
+            </dd>
+          </div>
+        </dl>
+        {gaps.length ? (
+          <div className="mt-4">
+            <p className="text-xs font-medium text-neutral-500">Critical gaps</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-neutral-700 dark:text-neutral-300">
+              {gaps.map((g) => (
+                <li key={g}>{g}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {steps.length ? (
+          <div className="mt-4">
+            <p className="text-xs font-medium text-neutral-500">Next steps</p>
+            <ol className="mt-1 list-decimal space-y-1 pl-5 text-neutral-700 dark:text-neutral-300">
+              {steps.map((st) => (
+                <li key={st}>{st}</li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+      </section>
+
+      {metaEntries.length ? (
+        <section className="rounded-lg border border-black/5 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/80">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            Contact & attribution
+          </h4>
+          <dl className="mt-3 space-y-2">
+            {metaEntries.map(([k, v]) => (
+              <div key={k} className="grid gap-0.5 sm:grid-cols-[minmax(0,160px)_1fr]">
+                <dt className="text-xs text-neutral-500">{metaLabel(k)}</dt>
+                <dd className="break-words text-xs text-neutral-800 dark:text-neutral-200">
+                  {formatMetaValue(v)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+
+      <section className="rounded-lg border border-black/5 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/80">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          Questionnaire responses
+        </h4>
+        <p className="mt-1 text-xs text-neutral-500">
+          Consent to store responses:{" "}
+          <span className="font-medium text-neutral-800 dark:text-neutral-200">
+            {s.consent ? "Yes" : "No"}
+          </span>
+        </p>
+        <ul className="mt-3 space-y-3">
+          {qaRows.map((row) => (
+            <li
+              key={row.text}
+              className="border-b border-black/5 pb-3 last:border-0 last:pb-0 dark:border-white/10"
+            >
+              <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200">
+                {row.text}
+              </p>
+              <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">{row.value}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 export function AdminModal({ open, onClose }: Props) {
   const [email, setEmail] = useState(DEFAULT_ADMIN_EMAIL);
   const [password, setPassword] = useState("");
@@ -37,6 +226,7 @@ export function AdminModal({ open, onClose }: Props) {
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [submissions, setSubmissions] = useState<AdminSubmission[] | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -67,6 +257,24 @@ export function AdminModal({ open, onClose }: Props) {
       setSubmissions(null);
     }
   }, [open, loadData]);
+
+  useEffect(() => {
+    if (!open || !getAdminToken()) {
+      setQuestions([]);
+      return;
+    }
+    let cancelled = false;
+    fetchQuestions()
+      .then((qs) => {
+        if (!cancelled) setQuestions(qs);
+      })
+      .catch(() => {
+        if (!cancelled) setQuestions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, summary]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,6 +308,8 @@ export function AdminModal({ open, onClose }: Props) {
     setSubmissions(null);
     setPassword("");
     setError(null);
+    setQuestions([]);
+    setExpandedId(null);
   };
 
   const onDownloadCsv = async () => {
@@ -271,7 +481,7 @@ export function AdminModal({ open, onClose }: Props) {
                         <th className="px-3 py-2">Band</th>
                         <th className="px-3 py-2">%</th>
                         <th className="px-3 py-2">Contact / org</th>
-                        <th className="px-3 py-2 w-24" />
+                        <th className="w-24 px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody>
@@ -308,19 +518,14 @@ export function AdminModal({ open, onClose }: Props) {
                             </tr>
                             {expandedId === s.id ? (
                               <tr className="bg-neutral-50/50 dark:bg-neutral-900/30">
-                                <td colSpan={7} className="px-3 py-3">
-                                  <pre className="max-h-48 overflow-auto rounded-lg border border-black/5 bg-white p-3 text-[11px] leading-relaxed dark:border-white/10 dark:bg-neutral-950">
-                                    {JSON.stringify(
-                                      {
-                                        answers: s.answers,
-                                        report: s.report,
-                                        meta: s.meta,
-                                        consent: s.consent,
-                                      },
-                                      null,
-                                      2
-                                    )}
-                                  </pre>
+                                <td colSpan={7} className="px-3 py-3 align-top">
+                                  {questions.length ? (
+                                    <SubmissionDetails s={s} questions={questions} />
+                                  ) : (
+                                    <p className="text-xs text-neutral-500">
+                                      Loading question labels…
+                                    </p>
+                                  )}
                                 </td>
                               </tr>
                             ) : null}
