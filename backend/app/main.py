@@ -780,6 +780,7 @@ def assess(request: Request, body: AssessRequest) -> AssessResponse:
         )
         subject = "Your EU AI Act readiness report"
         if brevo_api_is_configured():
+            logger.info("Report email: using Brevo API (HTTPS)")
             try:
                 send_report_via_brevo_api(
                     to_email=email_to, subject=subject, html=html
@@ -789,6 +790,10 @@ def assess(request: Request, body: AssessRequest) -> AssessResponse:
                 logger.exception("Report email (Brevo API) failed: %s", exc)
                 email_delivery = "failed"
         elif smtp_is_configured():
+            logger.info(
+                "Report email: using SMTP host=%s (set BREVO_API_KEY for same path as Render)",
+                os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+            )
             try:
                 send_report_via_smtp(
                     to_email=email_to, subject=subject, html=html
