@@ -120,6 +120,59 @@ def send_report_via_smtp(*, to_email: str, subject: str, html: str) -> None:
             server.send_message(msg)
 
 
+def _email_band_theme(band: str) -> dict[str, str]:
+    """Inline styles approximating the on-screen readiness cards (email-safe)."""
+    b = (band or "orange").lower().strip()
+    themes: dict[str, dict[str, str]] = {
+        "green": {
+            "hero_bg": "#ecfdf5",
+            "hero_border": "#6ee7b7",
+            "pill_bg": "#059669",
+            "pill_color": "#ffffff",
+            "bar": "linear-gradient(90deg,#34d399,#0d9488)",
+            "subcard_bg": "#f0fdf4",
+            "subcard_border": "#bbf7d0",
+        },
+        "yellow": {
+            "hero_bg": "#fffbeb",
+            "hero_border": "#fcd34d",
+            "pill_bg": "#d97706",
+            "pill_color": "#ffffff",
+            "bar": "linear-gradient(90deg,#fbbf24,#ca8a04)",
+            "subcard_bg": "#fffbeb",
+            "subcard_border": "#fde68a",
+        },
+        "orange": {
+            "hero_bg": "#fff7ed",
+            "hero_border": "#fdba74",
+            "pill_bg": "#ea580c",
+            "pill_color": "#ffffff",
+            "bar": "linear-gradient(90deg,#fb923c,#c2410c)",
+            "subcard_bg": "#fff7ed",
+            "subcard_border": "#fed7aa",
+        },
+        "red": {
+            "hero_bg": "#fff1f2",
+            "hero_border": "#fda4af",
+            "pill_bg": "#e11d48",
+            "pill_color": "#ffffff",
+            "bar": "linear-gradient(90deg,#fb7185,#b91c1c)",
+            "subcard_bg": "#fff1f2",
+            "subcard_border": "#fecdd3",
+        },
+    }
+    return themes.get(b, themes["orange"])
+
+
+def _band_short_label(band_label: object) -> str:
+    raw = str(band_label or "").strip()
+    if "—" in raw:
+        tail = raw.split("—", 1)[1].strip()
+        if tail:
+            return escape(tail)
+    return escape(raw) if raw else "—"
+
+
 def build_report_html(
     *,
     answers_labeled: list[tuple[str, str]],
@@ -127,37 +180,79 @@ def build_report_html(
 ) -> str:
     gaps = report.get("critical_gaps") or []
     steps = report.get("next_steps") or []
-    gaps_li = "".join(f"<li>{escape(str(g))}</li>" for g in gaps) or "<li>None flagged</li>"
-    steps_li = "".join(f"<li>{escape(str(s))}</li>" for s in steps)
+    gaps_li = "".join(
+        f"<li style='margin:0 0 8px 0;padding-left:4px'><span style='color:#f43f5e;margin-right:6px'>✕</span>{escape(str(g))}</li>"
+        for g in gaps
+    ) or "<li style='color:#6b7280'>None flagged</li>"
+    steps_li = "".join(f"<li style='margin:0 0 8px 0'>{escape(str(s))}</li>" for s in steps)
 
     qa_rows = "".join(
-        f"<tr><td style='padding:8px;border:1px solid #e5e7eb;vertical-align:top'>{escape(q)}</td>"
-        f"<td style='padding:8px;border:1px solid #e5e7eb'>{escape(a)}</td></tr>"
+        f"<tr><td style='padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;color:#374151;font-size:14px'>{escape(q)}</td>"
+        f"<td style='padding:10px 12px;border:1px solid #e5e7eb;color:#111827;font-size:14px'>{escape(a)}</td></tr>"
         for q, a in answers_labeled
     )
 
+    band = str(report.get("band") or "orange")
+    t = _email_band_theme(band)
+    pct_raw = report.get("score_percent")
+    try:
+        pct = max(0, min(100, int(pct_raw)))
+    except (TypeError, ValueError):
+        pct = 0
+
+    pct_disp = escape(str(pct_raw if pct_raw is not None else "—"))
+    pill = _band_short_label(report.get("band_label"))
+
     return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>EU AI Act readiness report</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:640px;margin:24px auto;color:#111827">
-  <h1 style="font-size:20px">Your EU AI Act readiness report</h1>
-  <p style="font-size:28px;font-weight:600">{escape(str(report.get("score_percent")))}%
-    <span style="font-size:16px;font-weight:500;color:#4b5563"> — {escape(str(report.get("band_label")))}</span></p>
-  <p style="color:#374151">{escape(str(report.get("band_summary")))}</p>
-  <p><strong>Model score:</strong> {escape(str(report.get("score_points")))} / 20 weighted points</p>
-  <h2 style="font-size:16px;margin-top:24px">Critical gaps</h2>
-  <ul>{gaps_li}</ul>
-  <h2 style="font-size:16px;margin-top:24px">Risk snapshot</h2>
-  <p style="color:#374151">{escape(str(report.get("risk_line")))}</p>
-  <p><strong>Days to deadline ({escape(str(report.get("deadline")))}):</strong>
-    {escape(str(report.get("days_remaining")))}</p>
-  <p><strong>Estimated remediation (indicative):</strong>
-    {escape(str(report.get("estimated_hours")))} hours</p>
-  <h2 style="font-size:16px;margin-top:24px">Recommended next steps</h2>
-  <ol>{steps_li}</ol>
-  <h2 style="font-size:16px;margin-top:24px">Your responses</h2>
-  <table style="border-collapse:collapse;width:100%;font-size:14px">{qa_rows}</table>
-  <p style="margin-top:24px;font-size:12px;color:#6b7280">This email is an automated summary for your
-  records only and is not legal advice.</p>
+<html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><title>EU AI Act readiness report</title></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:24px 16px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px">
+        <tr><td style="background:{t["hero_bg"]};border:1px solid {t["hero_border"]};border-radius:16px;padding:28px 24px 24px">
+          <p style="margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280">Your EU AI Act readiness</p>
+          <p style="margin:0 0 12px;font-size:34px;font-weight:700;line-height:1.15;color:#111827">
+            {pct_disp}%<span style="display:inline-block;vertical-align:middle;margin-left:10px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;background:{t["pill_bg"]};color:{t["pill_color"]}">{pill}</span>
+          </p>
+          <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151">{escape(str(report.get("band_summary") or ""))}</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>
+            <div style="height:10px;border-radius:999px;background:#e5e7eb;overflow:hidden">
+              <div style="height:10px;width:{pct}%;border-radius:999px;background:{t["bar"]}"></div>
+            </div>
+            <p style="margin:10px 0 0;font-size:12px;color:#6b7280">Model score: <strong style="color:#374151">{escape(str(report.get("score_points")))}</strong> / 20 weighted points</p>
+          </td></tr></table>
+        </td></tr>
+        <tr><td height="16"></td></tr>
+        <tr><td>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 12px">
+            <tr>
+              <td width="48%" valign="top" style="background:{t["subcard_bg"]};border:1px solid {t["subcard_border"]};border-radius:14px;padding:18px 16px">
+                <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#111827">Critical gaps</p>
+                <ul style="margin:0;padding-left:18px;color:#374151;font-size:14px;line-height:1.45">{gaps_li}</ul>
+              </td>
+              <td width="4%"></td>
+              <td width="48%" valign="top" style="background:{t["subcard_bg"]};border:1px solid {t["subcard_border"]};border-radius:14px;padding:18px 16px">
+                <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#111827">Risk snapshot</p>
+                <p style="margin:0 0 12px;font-size:14px;line-height:1.5;color:#374151">{escape(str(report.get("risk_line") or ""))}</p>
+                <p style="margin:0 0 6px;font-size:13px;color:#374151"><strong>Deadline</strong> ({escape(str(report.get("deadline")))}): <strong>{escape(str(report.get("days_remaining")))}</strong> days</p>
+                <p style="margin:0;font-size:13px;color:#374151"><strong>Est. remediation:</strong> {escape(str(report.get("estimated_hours")))} hours</p>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:20px 18px;margin-top:4px">
+          <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:#111827">Recommended next steps</p>
+          <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;line-height:1.5">{steps_li}</ol>
+        </td></tr>
+        <tr><td height="12"></td></tr>
+        <tr><td style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:20px 18px">
+          <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:#111827">Your responses</p>
+          <table style="border-collapse:collapse;width:100%">{qa_rows}</table>
+        </td></tr>
+        <tr><td style="padding:20px 8px 8px;text-align:center;font-size:12px;color:#6b7280;line-height:1.45">This email is an automated summary for your records only and is not legal advice.</td></tr>
+      </table>
+    </td></tr>
+  </table>
 </body></html>"""
 
 

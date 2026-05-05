@@ -24,3 +24,49 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Readiness report: subtle entrance + progress bar (matches on-screen polish) */
+@keyframes report-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes report-bar-grow {
+  from {
+    transform: scaleX(0.12);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.report-enter {
+  animation: report-fade-up 0.55s ease-out both;
+}
+
+.report-enter-delay-1 {
+  animation: report-fade-up 0.55s ease-out 0.08s both;
+}
+
+.report-enter-delay-2 {
+  animation: report-fade-up 0.55s ease-out 0.14s both;
+}
+
+.report-enter-delay-3 {
+  animation: report-fade-up 0.55s ease-out 0.2s both;
+}
+
+.report-enter-delay-4 {
+  animation: report-fade-up 0.55s ease-out 0.26s both;
+}
+
+.report-bar-fill {
+  transform-origin: left center;
+  animation: report-bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

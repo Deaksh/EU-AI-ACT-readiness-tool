@@ -8,6 +8,7 @@ import {
   submitAssessment,
 } from "@/lib/api";
 import { AdminModal } from "@/components/AdminModal";
+import { bandStyles, bandShortLabel, type ReportBand } from "@/lib/bandTheme";
 
 type Answers = Record<string, string | string[]>;
 
@@ -28,32 +29,6 @@ function sectionBadge(n: number): string {
   ];
   return names[n] ?? `Section ${n}`;
 }
-
-const bandStyles: Record<
-  AssessResult["band"],
-  { bar: string; card: string; dot: string }
-> = {
-  green: {
-    bar: "from-emerald-500/90 to-teal-600/90",
-    card: "border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-900/50 dark:bg-emerald-950/30",
-    dot: "bg-emerald-500",
-  },
-  yellow: {
-    bar: "from-amber-400/90 to-yellow-500/90",
-    card: "border-amber-200/80 bg-amber-50/80 dark:border-amber-900/50 dark:bg-amber-950/30",
-    dot: "bg-amber-500",
-  },
-  orange: {
-    bar: "from-orange-500/90 to-amber-600/90",
-    card: "border-orange-200/80 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/30",
-    dot: "bg-orange-500",
-  },
-  red: {
-    bar: "from-rose-600/90 to-red-700/90",
-    card: "border-rose-200/80 bg-rose-50/80 dark:border-rose-900/50 dark:bg-rose-950/30",
-    dot: "bg-rose-600",
-  },
-};
 
 export default function Home() {
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -452,7 +427,7 @@ export default function Home() {
         {result ? (
           <section
             id="results"
-            className="mt-12 space-y-6 scroll-mt-24 border-t border-black/5 pt-10 dark:border-white/10"
+            className="report-enter-delay-1 mt-12 space-y-6 scroll-mt-24 border-t border-black/5 pt-10 dark:border-white/10"
           >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
@@ -481,17 +456,28 @@ export default function Home() {
             </div>
 
             <div
-              className={`rounded-2xl border p-6 sm:p-8 ${bandStyles[result.band].card}`}
+              className={`report-enter rounded-2xl border p-6 sm:p-8 ${bandStyles[result.band as ReportBand].card}`}
             >
               <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
                     Your EU AI Act readiness
                   </p>
-                  <p className="mt-2 text-4xl font-semibold tabular-nums tracking-tight text-neutral-900 dark:text-neutral-50">
-                    {result.score_percent}%
-                    <span className="ml-3 text-lg font-medium text-neutral-600 dark:text-neutral-300">
-                      ({result.band_label.split("—")[1]?.trim() ?? result.band_label})
+                  <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-4xl font-semibold tabular-nums tracking-tight text-neutral-900 dark:text-neutral-50">
+                    <span>{result.score_percent}%</span>
+                    <span
+                      className={[
+                        "inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold uppercase tracking-wide",
+                        result.band === "green"
+                          ? "bg-emerald-600 text-white dark:bg-emerald-500"
+                          : result.band === "yellow"
+                            ? "bg-amber-500 text-neutral-900 dark:bg-amber-400"
+                            : result.band === "orange"
+                              ? "bg-orange-500 text-white dark:bg-orange-600"
+                              : "bg-rose-600 text-white dark:bg-rose-500",
+                      ].join(" ")}
+                    >
+                      {bandShortLabel(result.band_label)}
                     </span>
                   </p>
                   <p className="mt-3 max-w-prose text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
@@ -499,9 +485,12 @@ export default function Home() {
                   </p>
                 </div>
                 <div className="w-full sm:max-w-xs">
-                  <div
-                    className={`h-2.5 overflow-hidden rounded-full bg-gradient-to-r ${bandStyles[result.band].bar}`}
-                  />
+                  <div className="h-2.5 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                    <div
+                      className={`report-bar-fill h-full rounded-full bg-gradient-to-r ${bandStyles[result.band as ReportBand].bar}`}
+                      style={{ width: `${Math.min(100, Math.max(0, result.score_percent))}%` }}
+                    />
+                  </div>
                   <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
                     Model score: {result.score_points} / 20 weighted points
                   </p>
@@ -509,7 +498,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="report-enter-delay-2 grid gap-6 lg:grid-cols-2">
               <div className="rounded-2xl border border-black/5 bg-white/80 p-6 dark:border-white/10 dark:bg-neutral-950/50">
                 <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">
                   Critical gaps
@@ -538,7 +527,12 @@ export default function Home() {
                 </h3>
                 <ul className="mt-3 space-y-2 text-sm text-neutral-700 dark:text-neutral-300">
                   <li className="flex gap-2">
-                    <span className={bandStyles[result.band].dot + " mt-1.5 h-2 w-2 shrink-0 rounded-full"} />
+                    <span
+                      className={
+                        bandStyles[result.band as ReportBand].dot +
+                        " mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                      }
+                    />
                     <span>{result.risk_line}</span>
                   </li>
                   <li className="flex gap-2 text-neutral-600 dark:text-neutral-400">
@@ -568,7 +562,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-black/5 bg-white/80 p-6 dark:border-white/10 dark:bg-neutral-950/50">
+            <div className="report-enter-delay-3 rounded-2xl border border-black/5 bg-white/80 p-6 dark:border-white/10 dark:bg-neutral-950/50">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">
                 Recommended next steps
               </h3>
@@ -579,7 +573,7 @@ export default function Home() {
               </ol>
             </div>
 
-            <div className="rounded-2xl border border-dashed border-sky-300/60 bg-sky-50/50 p-6 dark:border-sky-800/50 dark:bg-sky-950/20">
+            <div className="report-enter-delay-4 rounded-2xl border border-dashed border-sky-300/60 bg-sky-50/50 p-6 dark:border-sky-800/50 dark:bg-sky-950/20">
               <h3 className="text-sm font-semibold text-sky-950 dark:text-sky-100">
                 Need help?
               </h3>

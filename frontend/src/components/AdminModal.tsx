@@ -13,6 +13,11 @@ import {
   type AdminSummary,
   type Question,
 } from "@/lib/api";
+import {
+  bandShortLabel,
+  bandStyles,
+  normalizeReportBand,
+} from "@/lib/bandTheme";
 
 const DEFAULT_ADMIN_EMAIL =
   process.env.NEXT_PUBLIC_ADMIN_EMAIL || "beaconone.org@gmail.com";
@@ -106,37 +111,60 @@ function SubmissionDetails({
     .filter(([, v]) => v != null && v !== "")
     .sort(([a], [b]) => a.localeCompare(b));
 
+  const band = normalizeReportBand(rep.band);
+  const pct = Number(rep.score_percent);
+  const pctClamped = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+  const pillClass =
+    band === "green"
+      ? "bg-emerald-600 text-white dark:bg-emerald-500"
+      : band === "yellow"
+        ? "bg-amber-500 text-neutral-900 dark:bg-amber-400"
+        : band === "orange"
+          ? "bg-orange-500 text-white dark:bg-orange-600"
+          : "bg-rose-600 text-white dark:bg-rose-500";
+
   return (
     <div className="max-h-[min(70vh,560px)] space-y-4 overflow-y-auto pr-1 text-sm">
-      <section className="rounded-lg border border-black/5 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/80">
+      <section
+        className={`rounded-2xl border p-4 sm:p-5 ${bandStyles[band].card}`}
+      >
         <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
           Report snapshot
         </h4>
-        <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-neutral-500">Readiness</dt>
-            <dd className="font-medium text-neutral-900 dark:text-neutral-100">
-              {String(rep.score_percent ?? "—")}% — {String(rep.band_label ?? rep.band ?? "—")}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-neutral-500">Model score</dt>
-            <dd className="font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
-              {String(rep.score_points ?? "—")} / 20
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-neutral-500">Summary</dt>
-            <dd className="text-neutral-700 dark:text-neutral-300">
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              Readiness
+            </p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-3xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-50">
+              <span>{String(rep.score_percent ?? "—")}%</span>
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${pillClass}`}
+              >
+                {bandShortLabel(rep.band_label)}
+              </span>
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
               {String(rep.band_summary ?? "—")}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-neutral-500">Risk</dt>
-            <dd className="text-neutral-700 dark:text-neutral-300">
+            </p>
+            <p className="mt-3 text-sm text-neutral-700 dark:text-neutral-300">
+              <span className="font-medium text-neutral-800 dark:text-neutral-200">Risk: </span>
               {String(rep.risk_line ?? "—")}
-            </dd>
+            </p>
           </div>
+          <div className="w-full shrink-0 sm:max-w-[200px]">
+            <div className="h-2.5 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+              <div
+                className={`report-bar-fill h-full rounded-full bg-gradient-to-r ${bandStyles[band].bar}`}
+                style={{ width: `${pctClamped}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+              Model score: {String(rep.score_points ?? "—")} / 20
+            </p>
+          </div>
+        </div>
+        <dl className="mt-4 grid gap-3 border-t border-black/5 pt-4 text-sm dark:border-white/10 sm:grid-cols-2">
           <div>
             <dt className="text-xs text-neutral-500">Deadline / days left</dt>
             <dd className="text-neutral-800 dark:text-neutral-200">
@@ -151,19 +179,24 @@ function SubmissionDetails({
           </div>
         </dl>
         {gaps.length ? (
-          <div className="mt-4">
+          <div className="mt-4 border-t border-black/5 pt-4 dark:border-white/10">
             <p className="text-xs font-medium text-neutral-500">Critical gaps</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-neutral-700 dark:text-neutral-300">
+            <ul className="mt-2 space-y-1.5 text-neutral-700 dark:text-neutral-300">
               {gaps.map((g) => (
-                <li key={g}>{g}</li>
+                <li key={g} className="flex gap-2">
+                  <span className="text-rose-500" aria-hidden>
+                    ✕
+                  </span>
+                  <span>{g}</span>
+                </li>
               ))}
             </ul>
           </div>
         ) : null}
         {steps.length ? (
-          <div className="mt-4">
+          <div className="mt-4 border-t border-black/5 pt-4 dark:border-white/10">
             <p className="text-xs font-medium text-neutral-500">Next steps</p>
-            <ol className="mt-1 list-decimal space-y-1 pl-5 text-neutral-700 dark:text-neutral-300">
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-neutral-700 dark:text-neutral-300">
               {steps.map((st) => (
                 <li key={st}>{st}</li>
               ))}
