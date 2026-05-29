@@ -6,6 +6,7 @@ export type Option = { value: string; label: string };
 
 export type Question = {
   id: string;
+  regulation_code: string;
   section: number;
   section_title: string;
   order: number;
@@ -15,12 +16,23 @@ export type Question = {
   show_if: { question_id: string; values: string[] } | null;
 };
 
+export type Regulation = {
+  id: number;
+  code: string;
+  name: string;
+  jurisdiction: string | null;
+  description: string | null;
+  deadline: string | null;
+  is_active: boolean;
+};
+
 export type AssessPayload = Record<string, string | string[]>;
 
 export type AssessBody = {
   answers: AssessPayload;
   email?: string | null;
   consent: boolean;
+  regulation_codes?: string[];
   contact_name?: string | null;
   company?: string | null;
   client_referrer?: string | null;
@@ -30,7 +42,16 @@ export type AssessBody = {
   utm_campaign?: string | null;
 };
 
-export type AssessResult = {
+export type SectionScore = {
+  section: number;
+  title: string;
+  score_raw: number;
+  score_max: number;
+  score_pct: number;
+};
+
+export type RegulationReport = {
+  regulation_code: string;
   score_points: number;
   score_percent: number;
   band: "green" | "yellow" | "orange" | "red";
@@ -42,15 +63,36 @@ export type AssessResult = {
   deadline: string;
   estimated_hours: number;
   next_steps: string[];
+  by_section: SectionScore[];
+  fine_exposure: string | null;
   calendly_url: string;
   website_url: string;
   waitlist_url: string;
-  submission_id: number;
-  email_delivery: "none" | "sent" | "failed" | "misconfigured";
 };
 
-export async function fetchQuestions(): Promise<Question[]> {
-  const r = await fetch(`${API_BASE}/api/questions`, { cache: "no-store" });
+// Single-regulation result (legacy eu_ai_act shape + new fields)
+export type AssessResult = RegulationReport & {
+  submission_id: number;
+  email_delivery: "none" | "sent" | "failed" | "misconfigured";
+  // multi-regulation fields (present only when multi_regulation=true)
+  multi_regulation?: boolean;
+  regulations?: Record<string, RegulationReport>;
+  overall_band?: "green" | "yellow" | "orange" | "red";
+  combined_gaps?: string[];
+};
+
+export async function fetchRegulations(): Promise<Regulation[]> {
+  const r = await fetch(`${API_BASE}/api/regulations`, { cache: "no-store" });
+  if (!r.ok) throw new Error("Failed to load regulations");
+  return r.json();
+}
+
+export async function fetchQuestions(regulations?: string[]): Promise<Question[]> {
+  const url =
+    regulations && regulations.length > 0
+      ? `${API_BASE}/api/questions?regulations=${regulations.join(",")}`
+      : `${API_BASE}/api/questions`;
+  const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) throw new Error("Failed to load questions");
   return r.json();
 }
@@ -63,6 +105,7 @@ export async function submitAssessment(body: AssessBody): Promise<AssessResult> 
       answers: body.answers,
       email: body.email?.trim() || null,
       consent: body.consent,
+      regulation_codes: body.regulation_codes ?? [],
       contact_name: body.contact_name?.trim() || null,
       company: body.company?.trim() || null,
       client_referrer: body.client_referrer?.trim() || null,
@@ -73,7 +116,7 @@ export async function submitAssessment(body: AssessBody): Promise<AssessResult> 
     }),
   });
   if (!r.ok) {
-    const err = await r.json().catch(() => ({})) as {
+    const err = (await r.json().catch(() => ({}))) as {
       detail?: string | { missing?: string[] } | Array<{ msg?: string }>;
     };
     const detail = err.detail;
@@ -181,10 +224,7 @@ export async function fetchAdminSubmissions(
   limit = 50,
   offset = 0
 ): Promise<AdminSubmission[]> {
-  const q = new URLSearchParams({
-    limit: String(limit),
-    offset: String(offset),
-  });
+  const q = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   const r = await fetch(`${API_BASE}/api/admin/submissions?${q}`, {
     headers: { ...adminAuthHeaders() },
     cache: "no-store",

@@ -4,7 +4,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load backend/.env before app.db creates the SQLAlchemy engine (import-time).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import csv
@@ -19,7 +18,7 @@ from typing import Any, Literal
 
 try:
     import jwt
-except ModuleNotFoundError as e:  # pragma: no cover
+except ModuleNotFoundError as e:
     raise ModuleNotFoundError(
         "Install admin dependencies: cd backend && pip install -r requirements.txt "
         "(use PyJWT; it provides the 'jwt' module — not the PyPI package named 'jwt')."
@@ -28,7 +27,15 @@ from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.db import admin_summary_rows, init_db, list_submissions, save_submission
+from app.db import (
+    admin_summary_rows,
+    get_active_regulations,
+    get_questions_for_regulations,
+    init_db,
+    list_submissions,
+    save_submission,
+)
+from app.scoring import compute_score, worst_band
 from app.report_email import (
     brevo_api_is_configured,
     build_report_html,
@@ -52,6 +59,7 @@ class OptionOut(BaseModel):
 
 class QuestionOut(BaseModel):
     id: str
+    regulation_code: str = "eu_ai_act"
     section: int
     section_title: str
     order: int
@@ -65,6 +73,7 @@ class AssessRequest(BaseModel):
     answers: dict[str, str | list[str]] = Field(default_factory=dict)
     email: EmailStr | None = None
     consent: bool = False
+    regulation_codes: list[str] = Field(default_factory=list)
     contact_name: str | None = Field(None, max_length=120)
     company: str | None = Field(None, max_length=200)
     client_referrer: str | None = Field(None, max_length=2000)
@@ -129,6 +138,10 @@ class AdminLoginIn(BaseModel):
 def _options(*items: tuple[str, str, float]) -> list[dict[str, Any]]:
     return [{"value": v, "label": lab, "points": pts} for v, lab, pts in items]
 
+
+# ──────────────────────────────────────────────
+# Legacy hardcoded EU AI Act questions (backward compat)
+# ──────────────────────────────────────────────
 
 QUESTIONS_INTERNAL: list[dict[str, Any]] = [
     {
@@ -395,6 +408,11 @@ QUESTIONS_INTERNAL: list[dict[str, Any]] = [
     },
 ]
 
+
+# ──────────────────────────────────────────────
+# Legacy scoring (eu_ai_act, backward compat)
+# ──────────────────────────────────────────────
+
 def _visible(q: dict[str, Any], answers: dict[str, str | list[str]]) -> bool:
     cond = q.get("show_if")
     if not cond:
@@ -410,10 +428,8 @@ def _points_for_answer(q: dict[str, Any], raw: str | list[str] | None) -> float:
         if not isinstance(raw, list):
             return 0.0
         return 1.0 if len(raw) > 0 else 0.0
-
     if raw is None or isinstance(raw, list):
         return 0.0
-
     for opt in q["options"]:
         if opt["value"] == raw:
             return float(opt["points"])
@@ -427,21 +443,19 @@ def _score_total(answers: dict[str, str | list[str]]) -> float:
             if q["id"] == "q8":
                 total += 1.0
             continue
-
         raw = answers.get(q["id"])
         if q["id"] == "q8":
             total += _points_for_answer(q, raw)
             continue
-
         total += _points_for_answer(q, raw)
-
     return total
 
 
-def _band_from_points(total: float) -> tuple[Literal["green", "yellow", "orange", "red"], str, str]:
+def _band_from_points(
+    total: float,
+) -> tuple[Literal["green", "yellow", "orange", "red"], str, str]:
     rounded = int(round(total))
     pct = int(round((total / 20.0) * 100))
-
     if rounded >= 18:
         return (
             "green",
@@ -489,11 +503,9 @@ def _collect_gaps(answers: dict[str, str | list[str]]) -> list[str]:
         gaps.append("EU user scope not reliably tracked")
     if s("q20") in (None, "no", "not_sure"):
         gaps.append("Audit readiness not demonstrated")
-
     q7 = s("q7")
     if q7 in ("yes", "dont_know") and isinstance(s("q8"), list) and len(s("q8")) == 0:
         gaps.append("High-risk categories not specified")
-
     return gaps[:8]
 
 
@@ -502,13 +514,13 @@ def _risk_line(band: str, score_percent: int) -> str:
         return "Lower acute readiness risk on this snapshot — continue monitoring drift and updates."
     if band == "yellow":
         return (
-            f"MEDIUM RISK: Non-compliance exposure remains material — fines can reach up to "
-            f"€35M or 7% of global annual turnover (whichever is higher) for severe breaches."
+            "MEDIUM RISK: Non-compliance exposure remains material — fines can reach up to "
+            "€35M or 7% of global annual turnover (whichever is higher) for severe breaches."
         )
     if band == "orange":
         return (
-            f"HIGH RISK: Potential €35M / 7% turnover exposure if audited without remediation — "
-            f"address critical gaps before enforcement dates."
+            "HIGH RISK: Potential €35M / 7% turnover exposure if audited without remediation — "
+            "address critical gaps before enforcement dates."
         )
     return (
         "CRITICAL RISK: Readiness appears far below expectations — treat remediation as urgent "
@@ -559,6 +571,21 @@ def _validate_required(answers: dict[str, str | list[str]]) -> None:
         raise HTTPException(status_code=400, detail={"missing": missing})
 
 
+def _validate_required_db(
+    answers: dict[str, str | list[str]],
+    questions: list[dict[str, Any]],
+) -> None:
+    missing: list[str] = []
+    for q in questions:
+        if not _visible(q, answers):
+            continue
+        val = answers.get(q["id"])
+        if val is None or val == "" or val == []:
+            missing.append(q["id"])
+    if missing:
+        raise HTTPException(status_code=400, detail={"missing": missing})
+
+
 def _answers_labeled_for_email(
     answers: dict[str, str | list[str]],
 ) -> list[tuple[str, str]]:
@@ -587,13 +614,16 @@ def _answers_labeled_for_email(
     return rows
 
 
+# ──────────────────────────────────────────────
+# Admin helpers
+# ──────────────────────────────────────────────
+
 def _cors_extra_origins() -> list[str]:
     raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 def _submission_meta(request: Request, body: AssessRequest) -> dict[str, Any]:
-    """Non-answer context for admin review (CRM / attribution). Optional email still stored separately."""
     meta: dict[str, Any] = {}
     if body.contact_name:
         meta["contact_name"] = body.contact_name
@@ -609,7 +639,6 @@ def _submission_meta(request: Request, body: AssessRequest) -> dict[str, Any]:
         meta["utm_medium"] = body.utm_medium
     if body.utm_campaign:
         meta["utm_campaign"] = body.utm_campaign
-
     ref = request.headers.get("referer")
     if ref:
         meta["http_referer"] = ref[:2000]
@@ -620,11 +649,9 @@ def _submission_meta(request: Request, body: AssessRequest) -> dict[str, Any]:
             meta["client_ip"] = first
     elif request.client and request.client.host:
         meta["client_ip"] = str(request.client.host)[:100]
-
     ua = request.headers.get("user-agent")
     if ua:
         meta["user_agent"] = ua[:500]
-
     return meta
 
 
@@ -676,15 +703,22 @@ def require_admin(
     raise HTTPException(status_code=404, detail="Not found")
 
 
+# ──────────────────────────────────────────────
+# App setup
+# ──────────────────────────────────────────────
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    # EU AI Act DB seeding happens after QUESTIONS_INTERNAL is defined above
+    from app.db import _seed_euaiact_questions
+    _seed_euaiact_questions()
     yield
 
 
 app = FastAPI(
     title="EU AI Act Readiness Assessment",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -698,19 +732,56 @@ app.add_middleware(
 )
 
 
+# ──────────────────────────────────────────────
+# Endpoints
+# ──────────────────────────────────────────────
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/regulations")
+def get_regulations() -> list[dict[str, Any]]:
+    """Return all active regulations from the catalog."""
+    return get_active_regulations()
+
+
 @app.get("/api/questions", response_model=list[QuestionOut])
-def get_questions() -> list[QuestionOut]:
-    out: list[QuestionOut] = []
-    for q in sorted(QUESTIONS_INTERNAL, key=lambda x: x["order"]):
+def get_questions(regulations: str | None = None) -> list[QuestionOut]:
+    """
+    Without ?regulations param: legacy behaviour — returns QUESTIONS_INTERNAL (eu_ai_act only).
+    With ?regulations=eu_ai_act,gdpr: loads from DB, returns questions for all specified regs.
+    """
+    if not regulations:
+        # Legacy path — untouched
+        out: list[QuestionOut] = []
+        for q in sorted(QUESTIONS_INTERNAL, key=lambda x: x["order"]):
+            opts = [OptionOut(value=o["value"], label=o["label"]) for o in q["options"]]
+            out.append(
+                QuestionOut(
+                    id=q["id"],
+                    regulation_code="eu_ai_act",
+                    section=q["section"],
+                    section_title=q["section_title"],
+                    order=q["order"],
+                    text=q["text"],
+                    type=q["type"],
+                    options=opts,
+                    show_if=q.get("show_if"),
+                )
+            )
+        return out
+
+    codes = [c.strip() for c in regulations.split(",") if c.strip()]
+    db_questions = get_questions_for_regulations(codes)
+    out = []
+    for q in db_questions:
         opts = [OptionOut(value=o["value"], label=o["label"]) for o in q["options"]]
         out.append(
             QuestionOut(
                 id=q["id"],
+                regulation_code=q.get("regulation_code", ""),
                 section=q["section"],
                 section_title=q["section_title"],
                 order=q["order"],
@@ -723,105 +794,176 @@ def get_questions() -> list[QuestionOut]:
     return out
 
 
-@app.post("/api/assess", response_model=AssessResponse)
-def assess(request: Request, body: AssessRequest) -> AssessResponse:
+@app.post("/api/assess")
+def assess(request: Request, body: AssessRequest) -> Any:
     if not body.consent:
         raise HTTPException(
             status_code=400,
             detail="Consent is required to submit. Please confirm storage of your responses.",
         )
 
-    _validate_required(body.answers)
-    total = _score_total(body.answers)
-    score_percent = int(round((total / 20.0) * 100))
-    band_key, band_label, band_summary = _band_from_points(total)
-    gaps = _collect_gaps(body.answers)
-    today = date.today()
-    days_remaining = max(0, (EU_AI_ACT_DEADLINE - today).days)
+    reg_codes = [c.strip() for c in (body.regulation_codes or []) if c.strip()]
 
-    email_delivery: Literal["none", "sent", "failed", "misconfigured"] = "none"
+    # ── Legacy single eu_ai_act path (backward compat) ───────────────────────
+    if not reg_codes or reg_codes == ["eu_ai_act"]:
+        _validate_required(body.answers)
+        total = _score_total(body.answers)
+        score_percent = int(round((total / 20.0) * 100))
+        band_key, band_label, band_summary = _band_from_points(total)
+        gaps = _collect_gaps(body.answers)
+        today = date.today()
+        days_remaining = max(0, (EU_AI_ACT_DEADLINE - today).days)
+
+        email_delivery: Literal["none", "sent", "failed", "misconfigured"] = "none"
+        email_to = str(body.email) if body.email else None
+
+        base = AssessResponse(
+            score_points=round(total, 2),
+            score_percent=score_percent,
+            band=band_key,
+            band_label=band_label,
+            band_summary=band_summary,
+            critical_gaps=gaps,
+            risk_line=_risk_line(band_key, score_percent),
+            days_remaining=days_remaining,
+            deadline=EU_AI_ACT_DEADLINE.isoformat(),
+            estimated_hours=_estimate_hours(total, len(gaps)),
+            next_steps=_next_steps(gaps),
+            calendly_url="https://calendly.com/beaconone-org/30min",
+            website_url="https://beaconwatchtower.carrd.co",
+            waitlist_url=(
+                "https://docs.google.com/forms/d/e/"
+                "1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform"
+            ),
+            submission_id=0,
+            email_delivery="none",
+        )
+        report_for_db = base.model_dump()
+        report_for_db.pop("submission_id", None)
+        report_for_db.pop("email_delivery", None)
+
+        sub_id = save_submission(
+            email=email_to,
+            answers=dict(body.answers),
+            report=report_for_db,
+            consent=body.consent,
+            meta=_submission_meta(request, body),
+            regulation_codes=["eu_ai_act"],
+        )
+
+        if email_to:
+            html = build_report_html(
+                answers_labeled=_answers_labeled_for_email(body.answers),
+                report=report_for_db,
+            )
+            subject = "Your EU AI Act readiness report"
+            if brevo_api_is_configured():
+                logger.info("Report email: using Brevo API (HTTPS)")
+                try:
+                    send_report_via_brevo_api(to_email=email_to, subject=subject, html=html)
+                    email_delivery = "sent"
+                except Exception as exc:
+                    logger.exception("Report email (Brevo API) failed: %s", exc)
+                    email_delivery = "failed"
+            elif smtp_is_configured():
+                logger.info(
+                    "Report email: using SMTP host=%s",
+                    os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+                )
+                try:
+                    send_report_via_smtp(to_email=email_to, subject=subject, html=html)
+                    email_delivery = "sent"
+                except Exception as exc:
+                    logger.exception("Report email (SMTP) failed: %s", exc)
+                    email_delivery = "failed"
+            elif os.environ.get("RESEND_API_KEY"):
+                try:
+                    send_report_via_resend(to_email=email_to, subject=subject, html=html)
+                    email_delivery = "sent"
+                except Exception as exc:
+                    logger.exception("Report email (Resend) failed: %s", exc)
+                    email_delivery = "failed"
+            else:
+                email_delivery = "misconfigured"
+
+        return base.model_copy(
+            update={"submission_id": sub_id, "email_delivery": email_delivery}
+        )
+
+    # ── Multi-regulation (or single non-eu_ai_act) DB path ───────────────────
+    db_questions_all = get_questions_for_regulations(reg_codes)
+    if not db_questions_all:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No questions found for regulations: {reg_codes}",
+        )
+
+    _validate_required_db(body.answers, db_questions_all)
+
+    # Group questions by regulation
+    questions_by_reg: dict[str, list[dict[str, Any]]] = {}
+    for q in db_questions_all:
+        rc = q.get("regulation_code", "")
+        questions_by_reg.setdefault(rc, []).append(q)
+
+    reg_reports: dict[str, dict[str, Any]] = {}
+    for rc in reg_codes:
+        qs = questions_by_reg.get(rc, [])
+        if not qs:
+            continue
+        reg_reports[rc] = compute_score(body.answers, qs, rc)
+
+    all_bands = [r["band"] for r in reg_reports.values()]
+    overall = worst_band(all_bands)
+    all_gaps: list[str] = []
+    seen_gaps: set[str] = set()
+    for r in reg_reports.values():
+        for g in r.get("critical_gaps", []):
+            if g not in seen_gaps:
+                all_gaps.append(g)
+                seen_gaps.add(g)
+
+    is_multi = len(reg_reports) > 1
+
+    combined_report: dict[str, Any]
+    if is_multi:
+        combined_report = {
+            "multi_regulation": True,
+            "regulations": reg_reports,
+            "overall_band": overall,
+            "combined_gaps": all_gaps[:10],
+        }
+    else:
+        # Single non-eu_ai_act — return compatible shape
+        single = next(iter(reg_reports.values()))
+        combined_report = single
+
     email_to = str(body.email) if body.email else None
+    email_delivery_str: Literal["none", "sent", "failed", "misconfigured"] = "none"
 
-    base = AssessResponse(
-        score_points=round(total, 2),
-        score_percent=score_percent,
-        band=band_key,
-        band_label=band_label,
-        band_summary=band_summary,
-        critical_gaps=gaps,
-        risk_line=_risk_line(band_key, score_percent),
-        days_remaining=days_remaining,
-        deadline=EU_AI_ACT_DEADLINE.isoformat(),
-        estimated_hours=_estimate_hours(total, len(gaps)),
-        next_steps=_next_steps(gaps),
-        calendly_url="https://calendly.com/beaconone-org/30min",
-        website_url="https://beaconwatchtower.carrd.co",
-        waitlist_url="https://docs.google.com/forms/d/e/1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform",
-        submission_id=0,
-        email_delivery="none",
-    )
-    report_for_db = base.model_dump()
-    report_for_db.pop("submission_id", None)
-    report_for_db.pop("email_delivery", None)
+    report_for_db = dict(combined_report)
 
-    answers_for_db: dict[str, Any] = dict(body.answers)
     sub_id = save_submission(
         email=email_to,
-        answers=answers_for_db,
+        answers=dict(body.answers),
         report=report_for_db,
         consent=body.consent,
         meta=_submission_meta(request, body),
+        regulation_codes=reg_codes,
     )
 
-    if email_to:
-        html = build_report_html(
-            answers_labeled=_answers_labeled_for_email(body.answers),
-            report=report_for_db,
-        )
-        subject = "Your EU AI Act readiness report"
-        if brevo_api_is_configured():
-            logger.info("Report email: using Brevo API (HTTPS)")
-            try:
-                send_report_via_brevo_api(
-                    to_email=email_to, subject=subject, html=html
-                )
-                email_delivery = "sent"
-            except Exception as exc:
-                logger.exception("Report email (Brevo API) failed: %s", exc)
-                email_delivery = "failed"
-        elif smtp_is_configured():
-            logger.info(
-                "Report email: using SMTP host=%s (set BREVO_API_KEY for same path as Render)",
-                os.environ.get("SMTP_HOST", "smtp.gmail.com"),
-            )
-            try:
-                send_report_via_smtp(
-                    to_email=email_to, subject=subject, html=html
-                )
-                email_delivery = "sent"
-            except Exception as exc:
-                logger.exception("Report email (SMTP) failed: %s", exc)
-                email_delivery = "failed"
-        elif os.environ.get("RESEND_API_KEY"):
-            try:
-                send_report_via_resend(
-                    to_email=email_to, subject=subject, html=html
-                )
-                email_delivery = "sent"
-            except Exception as exc:
-                logger.exception("Report email (Resend) failed: %s", exc)
-                email_delivery = "failed"
-        else:
-            email_delivery = "misconfigured"
+    result = dict(combined_report)
+    result["submission_id"] = sub_id
+    result["email_delivery"] = email_delivery_str
+    return result
 
-    return base.model_copy(
-        update={"submission_id": sub_id, "email_delivery": email_delivery}
-    )
 
+# ──────────────────────────────────────────────
+# Admin endpoints (unchanged)
+# ──────────────────────────────────────────────
 
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginIn) -> dict[str, str]:
-    """Email + password from env; returns JWT for Authorization: Bearer (8h)."""
     expected_email = (
         os.environ.get("ADMIN_EMAIL") or "beaconone.org@gmail.com"
     ).strip().lower()
@@ -836,15 +978,9 @@ def admin_login(body: AdminLoginIn) -> dict[str, str]:
             ),
         )
     if body.email.strip().lower() != expected_email:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid email or password.",
-        )
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
     if not _admin_password_ok(body.password, expected_pwd):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid email or password.",
-        )
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
     secret = _admin_jwt_secret()
     if not secret:
         raise HTTPException(
@@ -852,11 +988,7 @@ def admin_login(body: AdminLoginIn) -> dict[str, str]:
             detail="Set ADMIN_API_KEY or ADMIN_JWT_SECRET for admin tokens",
         )
     exp = datetime.now(timezone.utc) + timedelta(hours=8)
-    token = jwt.encode(
-        {"scope": "admin", "exp": exp},
-        secret,
-        algorithm="HS256",
-    )
+    token = jwt.encode({"scope": "admin", "exp": exp}, secret, algorithm="HS256")
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -872,44 +1004,35 @@ def admin_submissions(
 
 
 @app.get("/api/admin/submissions/export")
-def admin_submissions_export(
-    _auth: None = Depends(require_admin),
-) -> Response:
-    """CSV for spreadsheets: includes flattened meta + full meta_json."""
+def admin_submissions_export(_auth: None = Depends(require_admin)) -> Response:
     rows = list_submissions(limit=100_000, offset=0)
     buf = io.StringIO()
     fieldnames = [
-        "id",
-        "created_at",
-        "email",
-        "consent",
-        "band",
-        "score_percent",
-        "contact_name",
-        "company",
-        "page_url",
-        "client_referrer",
-        "utm_source",
-        "utm_medium",
-        "utm_campaign",
-        "client_ip",
-        "http_referer",
-        "user_agent",
-        "meta_json",
+        "id", "created_at", "email", "consent", "band", "score_percent",
+        "regulation_codes", "contact_name", "company", "page_url",
+        "client_referrer", "utm_source", "utm_medium", "utm_campaign",
+        "client_ip", "http_referer", "user_agent", "meta_json",
     ]
     w = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     w.writeheader()
     for row in rows:
         meta = row.get("meta") or {}
         rep = row.get("report") or {}
+        if rep.get("multi_regulation"):
+            band = rep.get("overall_band", "")
+            pct = ""
+        else:
+            band = rep.get("band", "")
+            pct = rep.get("score_percent", "")
         w.writerow(
             {
                 "id": row["id"],
                 "created_at": row.get("created_at") or "",
                 "email": row.get("email") or "",
                 "consent": row.get("consent", False),
-                "band": rep.get("band", ""),
-                "score_percent": rep.get("score_percent", ""),
+                "band": band,
+                "score_percent": pct,
+                "regulation_codes": json.dumps(row.get("regulation_codes") or ["eu_ai_act"]),
                 "contact_name": meta.get("contact_name", ""),
                 "company": meta.get("company", ""),
                 "page_url": meta.get("page_url", ""),
@@ -926,15 +1049,12 @@ def admin_submissions_export(
     return Response(
         content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": 'attachment; filename="assessment_submissions.csv"'
-        },
+        headers={"Content-Disposition": 'attachment; filename="assessment_submissions.csv"'},
     )
 
 
 @app.get("/api/admin/summary")
 def admin_summary(_auth: None = Depends(require_admin)) -> dict[str, Any]:
-    """Counts by band and email presence for quick analysis."""
     rows = admin_summary_rows()
     by_band: dict[str, int] = {}
     with_email = 0
