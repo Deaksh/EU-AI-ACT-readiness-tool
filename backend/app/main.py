@@ -830,7 +830,7 @@ def assess(request: Request, body: AssessRequest) -> Any:
             estimated_hours=_estimate_hours(total, len(gaps)),
             next_steps=_next_steps(gaps),
             calendly_url="https://calendly.com/beaconone-org/30min",
-            website_url="https://beaconwatchtower.carrd.co",
+            website_url="https://www.beaconone.net/ai-compliance",
             waitlist_url=(
                 "https://docs.google.com/forms/d/e/"
                 "1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform"

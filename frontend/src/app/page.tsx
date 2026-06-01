@@ -16,7 +16,7 @@ import { bandStyles, bandShortLabel, type ReportBand } from "@/lib/bandTheme";
 type Answers = Record<string, string | string[]>;
 type Screen = "landing" | "reg-select" | "assessment";
 
-const BEACON_PUBLIC_SITE = "https://beaconwatchtower.carrd.co";
+const BEACON_PUBLIC_SITE = "https://www.beaconone.net/ai-compliance";
 
 // ──────────────────────────────────────────────
 // Landing
@@ -63,7 +63,7 @@ function LandingScreen({ onStart, onAdmin }: { onStart: () => void; onAdmin: () 
               rel="noreferrer"
               className="text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
             >
-              beaconwatchtower.carrd.co
+              beaconone.net/ai-compliance
             </a>
           </p>
 
@@ -97,7 +97,7 @@ function LandingScreen({ onStart, onAdmin }: { onStart: () => void; onAdmin: () 
               rel="noreferrer"
               className="text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
             >
-              beaconwatchtower.carrd.co
+              beaconone.net/ai-compliance
             </a>
           </div>
 

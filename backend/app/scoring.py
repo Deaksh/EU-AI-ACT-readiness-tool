@@ -25,7 +25,7 @@ REGULATION_CONFIG: dict[str, dict[str, Any]] = {
             "for severe breaches of the EU AI Act."
         ),
         "calendly_url": "https://calendly.com/beaconone-org/30min",
-        "website_url": "https://beaconwatchtower.carrd.co",
+        "website_url": "https://www.beaconone.net/ai-compliance",
         "waitlist_url": (
             "https://docs.google.com/forms/d/e/"
             "1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform"
@@ -50,7 +50,7 @@ REGULATION_CONFIG: dict[str, dict[str, Any]] = {
             "for serious GDPR infringements."
         ),
         "calendly_url": "https://calendly.com/beaconone-org/30min",
-        "website_url": "https://beaconwatchtower.carrd.co",
+        "website_url": "https://www.beaconone.net/ai-compliance",
         "waitlist_url": (
             "https://docs.google.com/forms/d/e/"
             "1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform"
@@ -76,7 +76,7 @@ REGULATION_CONFIG: dict[str, dict[str, Any]] = {
             "procurement and enterprise B2B buyers."
         ),
         "calendly_url": "https://calendly.com/beaconone-org/30min",
-        "website_url": "https://beaconwatchtower.carrd.co",
+        "website_url": "https://www.beaconone.net/ai-compliance",
         "waitlist_url": (
             "https://docs.google.com/forms/d/e/"
             "1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform"
@@ -98,7 +98,7 @@ REGULATION_CONFIG: dict[str, dict[str, Any]] = {
         "deadline": None,
         "fine_exposure": None,
         "calendly_url": "https://calendly.com/beaconone-org/30min",
-        "website_url": "https://beaconwatchtower.carrd.co",
+        "website_url": "https://www.beaconone.net/ai-compliance",
         "waitlist_url": (
             "https://docs.google.com/forms/d/e/"
             "1FAIpQLScOztY5nKDrlmnmUtHDd0fEN0qifiAxFcVcDBzc8BWmpkhj9A/viewform"
